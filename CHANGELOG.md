@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.5] - Unreleased
+## [0.2.5] - 2026-08-07
 
 ### Fixed
 - Session-mode ephemeral pools left volume files un-deletable — `CreateTmpfsPool` mounted the per-machine tmpfs root-owned, but on session-mode hosts the per-user daemon runs as the SSH service account (not root), so a later `vol-delete` failed to unlink volume files under `/run/caplv/<machine>` with `Permission denied` (unlink needs write access on the parent directory, which a non-root, non-owning process lacks). The tmpfs is now mounted with `uid=`/`gid=` set to the service account (session mode only), making the pool directory service-account-owned atomically at mount time — no root-owned window and no separate `chown` (which isn't in the sudoers allowlist). The setup playbook's `/etc/sudoers.d/caplv` template grew the two matching `mount` rules for the `uid=,gid=` and `size=,uid=,gid=` option combinations.
