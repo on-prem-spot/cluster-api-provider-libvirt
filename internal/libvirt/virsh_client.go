@@ -440,9 +440,26 @@ func (c *VirshClient) CreateTmpfsPool(ctx context.Context, name, path, size stri
 	if err := c.runSSH(ctx, fmt.Sprintf("sudo mkdir -p %s", shellQuote(path))); err != nil {
 		return fmt.Errorf("mkdir failed: %w", err)
 	}
-	mountCmd := fmt.Sprintf("sudo mount -t tmpfs tmpfs %s", shellQuote(path))
+
+	// Assemble tmpfs mount options. A freshly mounted tmpfs is root-owned, but
+	// on session-mode hosts the per-user daemon runs as the SSH service account
+	// (not root): it creates and later unlinks volume files inside this
+	// directory directly, and unlink needs write access on the parent. Setting
+	// uid=/gid= at mount time makes the tmpfs root service-account-owned
+	// atomically — no root-owned window, no separate chown (which isn't in the
+	// sudoers allowlist) — mirroring how setup-host.yaml owns session storage.
+	// The $(id -u)/$(id -g) substitutions are expanded by the remote shell (as
+	// the service account) before sudo evaluates the command.
+	var opts []string
 	if size != "" {
-		mountCmd = fmt.Sprintf("sudo mount -t tmpfs -o %s tmpfs %s", shellQuote("size="+size), shellQuote(path))
+		opts = append(opts, "size="+shellQuote(size))
+	}
+	if c.connURI == ConnURISession {
+		opts = append(opts, "uid=$(id -u)", "gid=$(id -g)")
+	}
+	mountCmd := fmt.Sprintf("sudo mount -t tmpfs tmpfs %s", shellQuote(path))
+	if len(opts) > 0 {
+		mountCmd = fmt.Sprintf("sudo mount -t tmpfs -o %s tmpfs %s", strings.Join(opts, ","), shellQuote(path))
 	}
 	if err := c.runSSH(ctx, mountCmd); err != nil {
 		return fmt.Errorf("tmpfs mount failed: %w", err)
