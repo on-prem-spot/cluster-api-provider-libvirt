@@ -139,8 +139,8 @@
           {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/chmod 0644 /run/caplv/*
           {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs tmpfs /run/caplv/*
           {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o size=* tmpfs /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o uid=*,gid=* tmpfs /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o size=*,uid=*,gid=* tmpfs /run/caplv/*
+          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o uid=* -o gid=* tmpfs /run/caplv/*
+          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o size=* -o uid=* -o gid=* tmpfs /run/caplv/*
           {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/umount /run/caplv/*
           {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/rmdir /run/caplv/*
           {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/tee /run/caplv/*

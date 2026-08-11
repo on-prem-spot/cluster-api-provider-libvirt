@@ -459,7 +459,11 @@ func (c *VirshClient) CreateTmpfsPool(ctx context.Context, name, path, size stri
 	}
 	mountCmd := fmt.Sprintf("sudo mount -t tmpfs tmpfs %s", shellQuote(path))
 	if len(opts) > 0 {
-		mountCmd = fmt.Sprintf("sudo mount -t tmpfs -o %s tmpfs %s", strings.Join(opts, ","), shellQuote(path))
+		// Each option gets its own -o flag rather than a single comma-joined
+		// list: sudoers treats a comma in a command spec as a separator between
+		// commands, so `-o uid=*,gid=*` would parse `gid=*` as a second (invalid)
+		// command. The allowlist in setup-host.yaml matches the separate-flag form.
+		mountCmd = fmt.Sprintf("sudo mount -t tmpfs -o %s tmpfs %s", strings.Join(opts, " -o "), shellQuote(path))
 	}
 	if err := c.runSSH(ctx, mountCmd); err != nil {
 		return fmt.Errorf("tmpfs mount failed: %w", err)
