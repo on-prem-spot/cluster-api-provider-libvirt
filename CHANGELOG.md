@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.2.6] - 2026-08-11
 
 ### Fixed
 - The two `mount` sudoers rules added in 0.2.5 for the session-mode `uid=`/`gid=` options used a single comma-joined `-o` list (`-o uid=*,gid=*` and `-o size=*,uid=*,gid=*`), which `visudo`/`sudoers` rejects — a comma in a command spec separates commands, so `gid=*` was parsed as a second command and failed validation with `expected a fully-qualified path name`. Both the `/etc/sudoers.d/caplv` template and the `CreateTmpfsPool` mount command now emit each option as its own `-o` flag (`-o uid=* -o gid=*`), which validates cleanly and keeps the executed command matching the allowlist entry.
