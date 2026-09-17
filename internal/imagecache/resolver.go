@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
 )
@@ -52,9 +53,21 @@ type MultiResolver struct {
 	HTTPS Resolver
 	OCI   Resolver
 	S3    Resolver
+
+	// AllowInsecureTransport permits base image sources that disable transport
+	// authentication: a plain http:// URL, oci.plainHTTP, s3.insecure, or any
+	// of the insecureSkipTLSVerify flags. It corresponds to the manager's
+	// --allow-insecure-image-transport flag and defaults to false.
+	//
+	// The bytes fetched here become the root disk of every worker VM in the
+	// cluster, so an unauthenticated transport lets anyone on the network path
+	// choose what those nodes boot. The sibling bootartifacts resolver has
+	// always refused plain http for the same reason.
+	AllowInsecureTransport bool
 }
 
-// NewMultiResolver returns a MultiResolver with the default implementations.
+// NewMultiResolver returns a MultiResolver with the default implementations and
+// insecure transports refused. Set AllowInsecureTransport to relax that.
 func NewMultiResolver() *MultiResolver {
 	return &MultiResolver{
 		HTTPS: NewHTTPSResolver(),
@@ -63,8 +76,53 @@ func NewMultiResolver() *MultiResolver {
 	}
 }
 
+// checkTransportPolicy rejects a source that would fetch the base image over a
+// transport whose peer is not authenticated, unless the operator opted in.
+func checkTransportPolicy(src infrav1.BaseImageSource, allowInsecure bool) error {
+	if allowInsecure {
+		return nil
+	}
+	const hint = "; fix the source, or start the manager with --allow-insecure-image-transport"
+	switch src.Type {
+	case infrav1.BootArtifactsSourceHTTPS:
+		if src.HTTPS == nil {
+			return nil
+		}
+		if strings.HasPrefix(strings.ToLower(src.HTTPS.URL), "http://") {
+			return fmt.Errorf("baseImage.source.https.url uses plain http" + hint)
+		}
+		if src.HTTPS.InsecureSkipTLSVerify {
+			return fmt.Errorf("baseImage.source.https.insecureSkipTLSVerify is set" + hint)
+		}
+	case infrav1.BootArtifactsSourceOCI:
+		if src.OCI == nil {
+			return nil
+		}
+		if src.OCI.PlainHTTP {
+			return fmt.Errorf("baseImage.source.oci.plainHTTP is set" + hint)
+		}
+		if src.OCI.InsecureSkipTLSVerify {
+			return fmt.Errorf("baseImage.source.oci.insecureSkipTLSVerify is set" + hint)
+		}
+	case infrav1.BootArtifactsSourceS3:
+		if src.S3 == nil {
+			return nil
+		}
+		if src.S3.Insecure {
+			return fmt.Errorf("baseImage.source.s3.insecure is set" + hint)
+		}
+		if src.S3.InsecureSkipTLSVerify {
+			return fmt.Errorf("baseImage.source.s3.insecureSkipTLSVerify is set" + hint)
+		}
+	}
+	return nil
+}
+
 // Open dispatches to the configured per-type Resolver.
 func (m *MultiResolver) Open(ctx context.Context, src infrav1.BaseImageSource, creds *Credentials) (io.ReadCloser, error) {
+	if err := checkTransportPolicy(src, m.AllowInsecureTransport); err != nil {
+		return nil, err
+	}
 	switch src.Type {
 	case infrav1.BootArtifactsSourceHTTPS:
 		if src.HTTPS == nil {

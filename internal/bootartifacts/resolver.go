@@ -59,6 +59,49 @@ type MultiResolver struct {
 	HTTPS Resolver
 	OCI   Resolver
 	S3    Resolver
+
+	// AllowInsecureTransport permits sources that disable transport
+	// authentication (oci.plainHTTP, s3.insecure, or either
+	// insecureSkipTLSVerify). It corresponds to the manager's
+	// --allow-insecure-image-transport flag and defaults to false.
+	//
+	// The HTTPS resolver has always rejected plain http because these bytes are
+	// the kernel and initramfs every VM boots; the same reasoning applies to the
+	// registry and object-store transports, which previously honoured their
+	// insecure knobs unconditionally.
+	AllowInsecureTransport bool
+}
+
+// checkTransportPolicy rejects a source whose transport leaves the peer
+// unauthenticated, unless the operator opted in.
+func checkTransportPolicy(src infrav1.BootArtifactsSource, allowInsecure bool) error {
+	if allowInsecure {
+		return nil
+	}
+	const hint = "; fix the source, or start the manager with --allow-insecure-image-transport"
+	switch src.Type {
+	case infrav1.BootArtifactsSourceOCI:
+		if src.OCI == nil {
+			return nil
+		}
+		if src.OCI.PlainHTTP {
+			return fmt.Errorf("bootArtifacts.source.oci.plainHTTP is set" + hint)
+		}
+		if src.OCI.InsecureSkipTLSVerify {
+			return fmt.Errorf("bootArtifacts.source.oci.insecureSkipTLSVerify is set" + hint)
+		}
+	case infrav1.BootArtifactsSourceS3:
+		if src.S3 == nil {
+			return nil
+		}
+		if src.S3.Insecure {
+			return fmt.Errorf("bootArtifacts.source.s3.insecure is set" + hint)
+		}
+		if src.S3.InsecureSkipTLSVerify {
+			return fmt.Errorf("bootArtifacts.source.s3.insecureSkipTLSVerify is set" + hint)
+		}
+	}
+	return nil
 }
 
 // NewMultiResolver returns a MultiResolver wired with the default
@@ -73,6 +116,9 @@ func NewMultiResolver() *MultiResolver {
 
 // Resolve dispatches to the configured per-type Resolver.
 func (m *MultiResolver) Resolve(ctx context.Context, src infrav1.BootArtifactsSource, creds *Credentials) (*Artifacts, error) {
+	if err := checkTransportPolicy(src, m.AllowInsecureTransport); err != nil {
+		return nil, err
+	}
 	switch src.Type {
 	case infrav1.BootArtifactsSourceHTTPS:
 		if src.HTTPS == nil {

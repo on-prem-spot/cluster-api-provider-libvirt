@@ -71,6 +71,7 @@ func main() {
 	var enableHTTP2 bool
 	var maxConcurrentReconciles int
 	var baseImageCacheDir string
+	var allowInsecureImageTransport bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -96,6 +97,10 @@ func main() {
 		"Directory inside the controller pod where base qcow2 images are staged "+
 			"after download. Should be backed by an emptyDir (or a PVC if survival "+
 			"across pod restarts is desired). Content-addressed by sha256.")
+	flag.BoolVar(&allowInsecureImageTransport, "allow-insecure-image-transport", false,
+		"Permit LibvirtCluster.spec.baseImage sources that disable transport authentication "+
+			"(plain http:// URLs, oci.plainHTTP, s3.insecure, or any insecureSkipTLSVerify). "+
+			"Off by default: those bytes become the root disk of every worker VM.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -193,7 +198,15 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtCluster")
 		os.Exit(1)
 	}
-	baseImageCache, err := imagecache.New(baseImageCacheDir, imagecache.NewMultiResolver())
+	if allowInsecureImageTransport {
+		setupLog.Info("WARNING: --allow-insecure-image-transport is set; base images may be " +
+			"fetched over unauthenticated transports")
+	}
+	bootArtifactsResolver := bootartifacts.NewMultiResolver()
+	bootArtifactsResolver.AllowInsecureTransport = allowInsecureImageTransport
+	baseImageResolver := imagecache.NewMultiResolver()
+	baseImageResolver.AllowInsecureTransport = allowInsecureImageTransport
+	baseImageCache, err := imagecache.New(baseImageCacheDir, baseImageResolver)
 	if err != nil {
 		setupLog.Error(err, "Failed to initialise base image cache",
 			"dir", baseImageCacheDir)
@@ -205,7 +218,7 @@ func main() {
 		SSHClientFactory:        sshClientFactory,
 		LibvirtClientFactory:    libvirtClientFactory,
 		ISOBuilder:              iso.NewDiskfsBuilder(),
-		BootArtifactsResolver:   bootartifacts.NewMultiResolver(),
+		BootArtifactsResolver:   bootArtifactsResolver,
 		BaseImageCache:          baseImageCache,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 	}).SetupWithManager(mgr); err != nil {
