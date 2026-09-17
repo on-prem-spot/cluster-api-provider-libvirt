@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 
@@ -88,10 +89,11 @@ func (r *CSRApproverReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Check if this node name matches a CAPI Machine backed by a LibvirtMachine.
-	if !r.isLibvirtManagedNode(ctx, nodeName) {
+	lm := r.libvirtMachineForNode(ctx, nodeName)
+	if lm == nil {
 		return ctrl.Result{}, nil
 	}
-	if !shouldApproveKubeletCSR(csr, nodeName) {
+	if !shouldApproveKubeletCSR(csr, nodeName, machineNodeIPs(lm)) {
 		log.Info("CSR did not match CAPLV kubelet approval policy", "node", nodeName, "signer", csr.Spec.SignerName)
 		return ctrl.Result{}, nil
 	}
@@ -115,13 +117,14 @@ func (r *CSRApproverReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-// isLibvirtManagedNode checks whether a node name corresponds to a CAPI Machine
-// that is backed by a LibvirtMachine.
-func (r *CSRApproverReconciler) isLibvirtManagedNode(ctx context.Context, nodeName string) bool {
+// libvirtMachineForNode returns the LibvirtMachine that provisioned nodeName,
+// or nil when the node is not CAPLV-managed. The returned object carries the
+// addresses a serving certificate for this node is allowed to claim.
+func (r *CSRApproverReconciler) libvirtMachineForNode(ctx context.Context, nodeName string) *infrav1.LibvirtMachine {
 	// List all Machines across all namespaces.
 	machineList := &clusterv1.MachineList{}
 	if err := r.List(ctx, machineList); err != nil {
-		return false
+		return nil
 	}
 
 	for i := range machineList.Items {
@@ -146,11 +149,28 @@ func (r *CSRApproverReconciler) isLibvirtManagedNode(ctx context.Context, nodeNa
 		// also the hostname we inject into ignition.
 		domainName := fmt.Sprintf("%s-%s-%s", lm.Namespace, machine.Labels["cluster.x-k8s.io/cluster-name"], lm.Name)
 		if domainName == nodeName {
-			return true
+			return lm
 		}
 	}
 
-	return false
+	return nil
+}
+
+// machineNodeIPs returns the IP addresses this machine was provisioned with,
+// parsed out of spec.network.addresses (CIDR notation).
+func machineNodeIPs(lm *infrav1.LibvirtMachine) []net.IP {
+	ips := make([]net.IP, 0, len(lm.Spec.Network.Addresses))
+	for _, addr := range lm.Spec.Network.Addresses {
+		// Addresses are CIDRs (webhook-validated); tolerate a bare IP too.
+		if ip, _, err := net.ParseCIDR(addr); err == nil {
+			ips = append(ips, ip)
+			continue
+		}
+		if ip := net.ParseIP(addr); ip != nil {
+			ips = append(ips, ip)
+		}
+	}
+	return ips
 }
 
 // nodeNameFromCSR extracts the node name from a CSR.
@@ -176,7 +196,14 @@ func nodeNameFromCSR(csr *certificatesv1.CertificateSigningRequest) string {
 	return ""
 }
 
-func shouldApproveKubeletCSR(csr *certificatesv1.CertificateSigningRequest, nodeName string) bool {
+// shouldApproveKubeletCSR decides whether a kubelet CSR for nodeName may be
+// auto-approved. allowedIPs is the set of addresses the machine behind nodeName
+// was provisioned with; a serving certificate may not claim any other.
+func shouldApproveKubeletCSR(
+	csr *certificatesv1.CertificateSigningRequest,
+	nodeName string,
+	allowedIPs []net.IP,
+) bool {
 	req, err := parseCSRRequest(csr)
 	if err != nil {
 		return false
@@ -194,7 +221,7 @@ func shouldApproveKubeletCSR(csr *certificatesv1.CertificateSigningRequest, node
 		) && containsUsage(csr.Spec.Usages, certificatesv1.UsageClientAuth)
 	case kubeletServingSignerName:
 		return validKubeletServingRequester(csr, nodeName) &&
-			validKubeletServingSANs(req, nodeName) &&
+			validKubeletServingSANs(req, nodeName, allowedIPs) &&
 			hasOnlyUsages(csr.Spec.Usages,
 				certificatesv1.UsageDigitalSignature,
 				certificatesv1.UsageKeyEncipherment,
@@ -231,7 +258,18 @@ func validKubeletServingRequester(csr *certificatesv1.CertificateSigningRequest,
 	return csr.Spec.Username == systemNodePrefix+nodeName && containsString(csr.Spec.Groups, systemNodesGroup)
 }
 
-func validKubeletServingSANs(req *x509.CertificateRequest, nodeName string) bool {
+// validKubeletServingSANs checks that every SAN in a kubelet-serving CSR names
+// only this node.
+//
+// Every IP must be one the machine was actually provisioned with. Accepting any
+// routable address instead would let a node that holds its own kubelet
+// credential mint a cluster-CA-signed server certificate for a peer's IP (or a
+// service/API address) and impersonate it to anything that trusts the cluster
+// CA — which is why kube-controller-manager never auto-approves this signer and
+// why OpenShift's own approver checks SANs against the Machine's addresses.
+// An empty allowedIPs therefore permits no IP SANs at all, rather than all of
+// them.
+func validKubeletServingSANs(req *x509.CertificateRequest, nodeName string, allowedIPs []net.IP) bool {
 	if len(req.EmailAddresses) > 0 || len(req.URIs) > 0 {
 		return false
 	}
@@ -244,8 +282,22 @@ func validKubeletServingSANs(req *x509.CertificateRequest, nodeName string) bool
 		if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() {
 			return false
 		}
+		if !containsIP(allowedIPs, ip) {
+			return false
+		}
 	}
 	return true
+}
+
+// containsIP reports whether ip is in the allow-list, comparing by value so the
+// 4-byte and 16-byte encodings of the same IPv4 address match.
+func containsIP(allowed []net.IP, ip net.IP) bool {
+	for _, a := range allowed {
+		if a.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasOnlyUsages(actual []certificatesv1.KeyUsage, allowed ...certificatesv1.KeyUsage) bool {
