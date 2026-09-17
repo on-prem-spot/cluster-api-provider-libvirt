@@ -31,6 +31,12 @@ import (
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
 )
 
+// MaxBaseImageBytes caps a single decompressed base image. The cache volume in
+// the shipped manifest is a 20Gi emptyDir shared by every image, so an
+// unbounded stream evicts the pod; 16 GiB leaves room while clearing any real
+// RHCOS qcow2 by an order of magnitude.
+const MaxBaseImageBytes = 16 << 30
+
 // Cache is a content-addressed local-disk cache for base images. Fetches for
 // the same logical artifact (keyed by source-spec digest) are coalesced via
 // singleflight so 50 concurrent reconciles only download once.
@@ -104,10 +110,18 @@ func (c *Cache) fetch(ctx context.Context, src infrav1.BaseImageSource, creds *C
 		_ = os.Remove(tmpPath)
 	}
 
+	// Bounded: `stream` may be gzip-decompressed, so its length is chosen by
+	// whoever serves the source, not by the Content-Length. Without a cap a
+	// decompression bomb fills the cache volume and gets the manager evicted.
 	hasher := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, hasher), stream); err != nil {
+	written, err := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(stream, MaxBaseImageBytes+1))
+	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("stream to cache: %w", err)
+	}
+	if written > MaxBaseImageBytes {
+		cleanup()
+		return nil, fmt.Errorf("base image exceeds the %d byte limit", int64(MaxBaseImageBytes))
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)

@@ -17,7 +17,10 @@ limitations under the License.
 package bootartifacts
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"strings"
 	"testing"
 
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
@@ -89,5 +92,63 @@ func TestMultiResolver_EnforcesTransportPolicy(t *testing.T) {
 	}
 	if _, err := m.Resolve(context.Background(), src, nil); err == nil {
 		t.Fatal("expected MultiResolver.Resolve to refuse an insecure source")
+	}
+}
+
+// --- read limits ---
+
+func TestReadLimited_RejectsOversizedInput(t *testing.T) {
+	r := bytes.NewReader(make([]byte, 64))
+	if _, err := readLimited(r, 32, "artifact"); err == nil {
+		t.Fatal("expected an oversized read to be rejected, not truncated")
+	}
+}
+
+func TestReadLimited_AcceptsInputAtTheLimit(t *testing.T) {
+	r := bytes.NewReader(make([]byte, 32))
+	got, err := readLimited(r, 32, "artifact")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 32 {
+		t.Errorf("expected 32 bytes, got %d", len(got))
+	}
+}
+
+// A decompression bomb is small on the wire and huge once expanded, and the
+// digest can only be checked after the bytes are in hand — so a pinned sha256
+// is no defence and the cap has to apply to the *decompressed* stream. Tested
+// through readLimited with a small limit rather than the production
+// MaxArtifactBytes, so the assertion does not cost half a gigabyte of heap.
+func TestReadLimited_RejectsDecompressionBomb(t *testing.T) {
+	const limit = 1 << 20
+
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(make([]byte, limit*8)); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	if buf.Len() >= limit {
+		t.Fatalf("expected the compressed form to be far under the limit, got %d bytes", buf.Len())
+	}
+
+	zr, err := gzip.NewReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	if _, err := readLimited(zr, limit, "gzip-decompressed artifact"); err == nil {
+		t.Fatal("expected the decompressed size cap to reject the bomb")
+	} else if !strings.Contains(err.Error(), "limit") {
+		t.Errorf("expected a limit error, got: %v", err)
+	}
+}
+
+// Guard the production cap itself, since the test above uses a smaller one.
+func TestMaxArtifactBytesIsBounded(t *testing.T) {
+	if MaxArtifactBytes <= 0 || MaxArtifactBytes > 1<<30 {
+		t.Errorf("MaxArtifactBytes = %d, want a positive cap no larger than 1 GiB", MaxArtifactBytes)
 	}
 }

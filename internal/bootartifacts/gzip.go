@@ -19,7 +19,6 @@ package bootartifacts
 import (
 	"bytes"
 	"compress/gzip"
-	"io"
 )
 
 // decompressIfGzip returns raw unchanged if it does not start with the gzip
@@ -40,5 +39,6 @@ func decompressIfGzip(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	return io.ReadAll(r)
+	// Bounded: the expansion ratio of the compressed input is attacker-chosen.
+	return readLimited(r, MaxArtifactBytes, "gzip-decompressed artifact")
 }

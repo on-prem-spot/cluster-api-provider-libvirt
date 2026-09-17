@@ -23,7 +23,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -144,7 +143,7 @@ func fetchManifest(ctx context.Context, repo *remote.Repository, ref string) (oc
 		return ocispec.Descriptor{}, nil, err
 	}
 	defer func() { _ = rc.Close() }()
-	body, err := io.ReadAll(rc)
+	body, err := readLimited(rc, maxManifestBytes, "OCI manifest")
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -174,7 +173,7 @@ func fetchLayer(ctx context.Context, repo *remote.Repository, desc ocispec.Descr
 	}
 	defer func() { _ = rc.Close() }()
 
-	raw, err := io.ReadAll(rc)
+	raw, err := readLimited(rc, MaxArtifactBytes, fmt.Sprintf("blob %s", desc.Digest))
 	if err != nil {
 		return nil, "", fmt.Errorf("read blob %s: %w", desc.Digest, err)
 	}

@@ -32,6 +32,9 @@ import (
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
 )
 
+// maxManifestBytes caps an OCI manifest document, which is small JSON.
+const maxManifestBytes = 4 << 20
+
 // OCIResolver streams a qcow2 blob out of an OCI artifact. The manifest is
 // expected to carry exactly one layer (or one layer titled BlobTitle when
 // set), so packagers can do `oras push <ref> rhcos.qcow2:application/octet-stream`
@@ -100,9 +103,13 @@ func fetchManifest(ctx context.Context, repo *remote.Repository, ref string) (oc
 		return ocispec.Descriptor{}, nil, err
 	}
 	defer func() { _ = rc.Close() }()
-	body, err := io.ReadAll(rc)
+	// Bounded: the manifest is small JSON served by a remote registry.
+	body, err := io.ReadAll(io.LimitReader(rc, maxManifestBytes+1))
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
+	}
+	if int64(len(body)) > maxManifestBytes {
+		return ocispec.Descriptor{}, nil, fmt.Errorf("OCI manifest exceeds the %d byte limit", int64(maxManifestBytes))
 	}
 	return desc, body, nil
 }

@@ -22,7 +22,6 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -104,7 +103,7 @@ func fetchObject(ctx context.Context, client *minio.Client, bucket, key, expecte
 	}
 	defer func() { _ = obj.Close() }()
 
-	raw, err := io.ReadAll(obj)
+	raw, err := readLimited(obj, MaxArtifactBytes, fmt.Sprintf("object s3://%s/%s", bucket, key))
 	if err != nil {
 		return nil, "", fmt.Errorf("read s3://%s/%s: %w", bucket, key, err)
 	}

@@ -19,9 +19,35 @@ package bootartifacts
 import (
 	"context"
 	"fmt"
+	"io"
 
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
 )
+
+const (
+	// MaxArtifactBytes caps a single kernel or initramfs, before and after gzip
+	// decompression. These artifacts are held wholly in memory and then cached
+	// for the process lifetime, so an unbounded read is an OOM of the manager —
+	// and since the digest can only be checked once the bytes are in hand, a
+	// pinned sha256 is no defence against a decompression bomb. 512 MiB is well
+	// clear of a real RHCOS kernel+initramfs pair.
+	MaxArtifactBytes = 512 << 20
+	// maxManifestBytes caps an OCI manifest document, which is small JSON.
+	maxManifestBytes = 4 << 20
+)
+
+// readLimited reads at most limit bytes from r, returning an error rather than
+// a truncated result when the source has more to give.
+func readLimited(r io.Reader, limit int64, what string) ([]byte, error) {
+	buf, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > limit {
+		return nil, fmt.Errorf("%s exceeds the %d byte limit", what, limit)
+	}
+	return buf, nil
+}
 
 // Artifacts holds the fetched kernel and initramfs bytes plus their sha256 hex digests.
 type Artifacts struct {

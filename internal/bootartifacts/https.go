@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -89,7 +88,7 @@ func (r *HTTPSResolver) fetchOne(ctx context.Context, url, expectedDigest string
 		return nil, "", fmt.Errorf("get %s: unexpected status %d", url, resp.StatusCode)
 	}
 
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readLimited(resp.Body, MaxArtifactBytes, "response body from "+url)
 	if err != nil {
 		return nil, "", fmt.Errorf("read %s: %w", url, err)
 	}
