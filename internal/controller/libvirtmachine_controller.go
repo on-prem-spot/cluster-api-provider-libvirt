@@ -1363,14 +1363,19 @@ func dockerConfigKeyHost(key string) string {
 	return k
 }
 
+// dockerHubHost is the canonical name for Docker Hub, which appears under
+// several aliases in dockerconfigjson keys and is the implicit registry for an
+// unqualified reference.
+const dockerHubHost = "docker.io"
+
 // canonicalRegistryHost folds the Docker Hub aliases onto one name so an
 // exact match does not reject a legitimate hub credential. Every other host is
 // compared literally, lower-cased.
 func canonicalRegistryHost(host string) string {
 	h := strings.ToLower(host)
 	switch h {
-	case "docker.io", "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com":
-		return "docker.io"
+	case dockerHubHost, "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com":
+		return dockerHubHost
 	}
 	return h
 }
@@ -1400,12 +1405,12 @@ func decodeDockerAuth(user, pass, encoded string) (string, string, error) {
 func registryHostFromReference(ref string) string {
 	first, _, hasSlash := strings.Cut(ref, "/")
 	if !hasSlash || first == "" {
-		return "docker.io"
+		return dockerHubHost
 	}
 	if strings.ContainsAny(first, ".:") || first == "localhost" {
 		return first
 	}
-	return "docker.io"
+	return dockerHubHost
 }
 
 // hostFromURL returns the host[:port] an http(s) URL addresses, or "" if it

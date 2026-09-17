@@ -19,6 +19,7 @@ package controller
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -29,15 +30,17 @@ type authEntry struct{ host, user, pass string }
 // dockerConfigJSON builds a .dockerconfigjson payload from the given entries.
 func dockerConfigJSON(t *testing.T, entries ...authEntry) []byte {
 	t.Helper()
-	out := `{"auths":{`
+	var b strings.Builder
+	b.WriteString(`{"auths":{`)
 	for i, e := range entries {
 		if i > 0 {
-			out += ","
+			b.WriteString(",")
 		}
 		auth := base64.StdEncoding.EncodeToString([]byte(e.user + ":" + e.pass))
-		out += fmt.Sprintf("%q:{\"auth\":%q}", e.host, auth)
+		fmt.Fprintf(&b, "%q:{\"auth\":%q}", e.host, auth)
 	}
-	return []byte(out + `}}`)
+	b.WriteString(`}}`)
+	return []byte(b.String())
 }
 
 func TestLookupDockerConfigAuth_ExactHostMatch(t *testing.T) {

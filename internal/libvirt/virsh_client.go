@@ -630,13 +630,9 @@ func (c *VirshClient) GetVolumePath(ctx context.Context, pool, name string) (str
 	return c.runVirsh(ctx, "vol-path", name, "--pool", pool)
 }
 
-// hostRunDir is the CAPLV-owned runtime directory on hosts; it holds the
-// per-machine artifact directories (ignition files, ephemeral pool mounts).
-const hostRunDir = "/run/caplv"
-
 // hostCtl is the single privileged helper the service account may run under
 // sudo. It owns the ownership and mode policy for everything CAPLV puts on a
-// host, and confines every path to hostRunDir — see the "Privileged helper"
+// host, and confines every path to /run/caplv — see the "Privileged helper"
 // task in deploy/ansible/setup-host.yaml for why the previous per-command
 // sudoers rules could not do that safely.
 const hostCtl = "/usr/local/sbin/caplv-hostctl"
