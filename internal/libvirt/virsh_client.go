@@ -436,36 +436,16 @@ func (c *VirshClient) StartPool(ctx context.Context, name string) error {
 // If size is non-empty it is passed as the tmpfs `size=` option (e.g. "80%", "16G");
 // when empty the kernel default (50% of physical RAM) applies.
 func (c *VirshClient) CreateTmpfsPool(ctx context.Context, name, path, size string) error {
-	// Create directory and mount tmpfs (requires sudo).
-	if err := c.runSSH(ctx, fmt.Sprintf("sudo mkdir -p %s", shellQuote(path))); err != nil {
-		return fmt.Errorf("mkdir failed: %w", err)
-	}
-
-	// Assemble tmpfs mount options. A freshly mounted tmpfs is root-owned, but
-	// on session-mode hosts the per-user daemon runs as the SSH service account
-	// (not root): it creates and later unlinks volume files inside this
-	// directory directly, and unlink needs write access on the parent. Setting
-	// uid=/gid= at mount time makes the tmpfs root service-account-owned
-	// atomically — no root-owned window, no separate chown (which isn't in the
-	// sudoers allowlist) — mirroring how setup-host.yaml owns session storage.
-	// The $(id -u)/$(id -g) substitutions are expanded by the remote shell (as
-	// the service account) before sudo evaluates the command.
-	var opts []string
+	// The helper creates the mount point and mounts the tmpfs in one step. It
+	// owns the uid/gid/mode policy: a bare `mount -t tmpfs` leaves the mount
+	// root world-writable (tmpfs defaults to 1777), and on session-mode hosts
+	// the per-user daemon — which runs as the service account, not root —
+	// needs to create and unlink volume files inside it.
+	args := []string{path}
 	if size != "" {
-		opts = append(opts, "size="+shellQuote(size))
+		args = append(args, size)
 	}
-	if c.connURI == ConnURISession {
-		opts = append(opts, "uid=$(id -u)", "gid=$(id -g)")
-	}
-	mountCmd := fmt.Sprintf("sudo mount -t tmpfs tmpfs %s", shellQuote(path))
-	if len(opts) > 0 {
-		// Each option gets its own -o flag rather than a single comma-joined
-		// list: sudoers treats a comma in a command spec as a separator between
-		// commands, so `-o uid=*,gid=*` would parse `gid=*` as a second (invalid)
-		// command. The allowlist in setup-host.yaml matches the separate-flag form.
-		mountCmd = fmt.Sprintf("sudo mount -t tmpfs -o %s tmpfs %s", strings.Join(opts, " -o "), shellQuote(path))
-	}
-	if err := c.runSSH(ctx, mountCmd); err != nil {
+	if err := c.runSSH(ctx, hostCtlCmd("mount-tmpfs", args...)); err != nil {
 		return fmt.Errorf("tmpfs mount failed: %w", err)
 	}
 
@@ -496,10 +476,10 @@ func (c *VirshClient) DestroyPool(ctx context.Context, name string) error {
 	_, _ = c.runVirsh(ctx, "pool-destroy", name)  // ignore errors — may already be stopped
 	_, _ = c.runVirsh(ctx, "pool-undefine", name) // ignore errors — may already be undefined
 
-	// Unmount tmpfs and remove directory (requires sudo).
+	// Unmount tmpfs and remove the directory (the helper does both, and tolerates
+	// an already-unmounted or already-removed path).
 	if poolPath != "" {
-		_ = c.runSSH(ctx, fmt.Sprintf("sudo umount %s 2>/dev/null", shellQuote(poolPath)))
-		_ = c.runSSH(ctx, fmt.Sprintf("sudo rmdir %s 2>/dev/null", shellQuote(poolPath)))
+		_ = c.runSSH(ctx, hostCtlCmd("umount", poolPath))
 	}
 	return nil
 }
@@ -654,39 +634,44 @@ func (c *VirshClient) GetVolumePath(ctx context.Context, pool, name string) (str
 // per-machine artifact directories (ignition files, ephemeral pool mounts).
 const hostRunDir = "/run/caplv"
 
+// hostCtl is the single privileged helper the service account may run under
+// sudo. It owns the ownership and mode policy for everything CAPLV puts on a
+// host, and confines every path to hostRunDir — see the "Privileged helper"
+// task in deploy/ansible/setup-host.yaml for why the previous per-command
+// sudoers rules could not do that safely.
+const hostCtl = "/usr/local/sbin/caplv-hostctl"
+
+// hostCtlCmd builds a `sudo caplv-hostctl <action> <args...>` command line.
+// Arguments are still shell-quoted: the helper validates them, but nothing
+// should depend on that alone.
+func hostCtlCmd(action string, args ...string) string {
+	return "sudo " + hostCtl + " " + action + " " + shellJoin(args...)
+}
+
 // WriteRemoteFile writes data to a file on the remote host via SSH.
-// Uses sudo for mkdir (the /run/caplv/ directory requires root to create).
-// Directory and file modes are set explicitly (0755/0644): mkdir and tee
-// inherit the remote root umask, which on hosts with a restrictive umask
-// (e.g. 0027) would strip the world bits the unprivileged qemu process
-// needs to traverse the directory and read the file.
+//
+// Both the directory and the file are created by the helper with an owner and
+// mode that admit only the process that consumes them (qemu in system mode, the
+// service account in session mode). They are deliberately not world-readable:
+// the ignition config staged here carries the cluster's worker bootstrap
+// credentials, and these hosts run incumbent workloads with other local users.
 func (c *VirshClient) WriteRemoteFile(ctx context.Context, path string, data []byte) error {
-	// Ensure parent directory exists (requires sudo). install -d applies
-	// the mode to every path component it creates, unlike mkdir -p -m.
-	// The explicit chmod repairs directories that already exist with a
-	// wrong mode (left behind by an older CAPLV that created them under a
-	// restrictive umask); for paths under /run/caplv that includes the
-	// CAPLV-owned base directory itself.
-	dir := path[:strings.LastIndex(path, "/")]
-	repair := []string{dir}
-	if strings.HasPrefix(dir, hostRunDir+"/") {
-		repair = append(repair, hostRunDir)
+	idx := strings.LastIndex(path, "/")
+	if idx <= 0 {
+		return fmt.Errorf("remote path must be absolute and contain a directory: %q", path)
 	}
-	mkdirCmd := fmt.Sprintf("sudo install -d -m 0755 %s && sudo chmod 0755 %s",
-		shellQuote(dir), shellJoin(repair...))
-	if err := c.runSSH(ctx, mkdirCmd); err != nil {
+	dir := path[:idx]
+
+	if err := c.runSSH(ctx, hostCtlCmd("mkdir", dir)); err != nil {
 		return fmt.Errorf("mkdir failed: %w", err)
 	}
 
-	// Write file via sudo tee, then chmod so the mode is umask-independent
-	// (and repairs a wrong mode left by a previous write).
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("ssh session for write: %w", err)
 	}
 	session.Stdin = bytes.NewReader(data)
-	cmd := fmt.Sprintf("sudo tee %s > /dev/null && sudo chmod 0644 %s", shellQuote(path), shellQuote(path))
-	if err := session.Run(cmd); err != nil {
+	if err := session.Run(hostCtlCmd("write", path)); err != nil {
 		_ = session.Close()
 		return fmt.Errorf("write remote file %s: %w", path, err)
 	}
@@ -694,7 +679,9 @@ func (c *VirshClient) WriteRemoteFile(ctx context.Context, path string, data []b
 	return nil
 }
 
-// RemoteFileExists returns true if path exists on the remote host.
+// RemoteFileExists returns true if path exists on the remote host. The check
+// goes through the helper because the artifact directories are no longer
+// world-traversable.
 func (c *VirshClient) RemoteFileExists(ctx context.Context, path string) (bool, error) {
 	session, err := c.sshClient.NewSession()
 	if err != nil {
@@ -706,7 +693,7 @@ func (c *VirshClient) RemoteFileExists(ctx context.Context, path string) (bool, 
 	session.Stdout = &stdout
 	done := make(chan error, 1)
 	go func() {
-		done <- session.Run(fmt.Sprintf("test -e %s && echo present || echo missing", shellQuote(path)))
+		done <- session.Run(hostCtlCmd("exists", path))
 	}()
 	select {
 	case <-ctx.Done():
@@ -722,7 +709,7 @@ func (c *VirshClient) RemoteFileExists(ctx context.Context, path string) (bool, 
 
 // DeleteRemoteFile deletes a file on the remote host via SSH.
 func (c *VirshClient) DeleteRemoteFile(ctx context.Context, path string) error {
-	return c.runSSH(ctx, fmt.Sprintf("sudo rm -f %s", shellQuote(path)))
+	return c.runSSH(ctx, hostCtlCmd("rm", path))
 }
 
 // Close closes the underlying SSH connection.

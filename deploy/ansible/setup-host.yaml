@@ -127,24 +127,152 @@
         group: "{{ caplv_user }}"
         mode: "0600"
 
-    # ── Sudoers ───────────────────────────────────────────────
+    # ── Privileged helper + sudoers ───────────────────────────
+    #
+    # The service account gets sudo for exactly one command, which validates its
+    # own arguments. Wildcards cannot be used safely here: in a sudoers *command
+    # argument* (unlike the command path) a '*' matches '/' too, so a rule such
+    # as "/usr/bin/tee /run/caplv/*" also permits
+    # "/usr/bin/tee /run/caplv/../../etc/sudoers.d/x" — sudo matches the literal
+    # argv and never canonicalises it. That made the previous "restricted" rule
+    # set equivalent to full root. caplv-hostctl resolves every path with
+    # `realpath -m` (which collapses '..' and follows symlinks) and refuses
+    # anything that does not land under /run/caplv.
+
+    - name: Install the CAPLV privileged helper
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # caplv-hostctl — the only command the CAPLV service account may run as
+          # root. Managed by deploy/ansible/setup-host.yaml; do not edit in place.
+          set -euo pipefail
+
+          readonly BASE=/run/caplv
+          readonly LIBVIRT_MODE={{ libvirt_mode | quote }}
+          readonly CAPLV_USER={{ caplv_user | quote }}
+
+          # Artifact ownership. The ignition config staged here is the cluster's
+          # worker bootstrap payload, so it must not be world-readable: only the
+          # process that consumes it needs access. In system mode that is qemu;
+          # in session mode the per-user daemon runs as the service account.
+          if [[ $LIBVIRT_MODE == session ]]; then
+            readonly OWNER="$CAPLV_USER" GROUP="$CAPLV_USER" DIR_MODE=0700 FILE_MODE=0600
+          else
+            readonly OWNER=root GROUP=qemu DIR_MODE=0750 FILE_MODE=0640
+          fi
+
+          die() { printf 'caplv-hostctl: %s\n' "$*" >&2; exit 1; }
+
+          usage() {
+            die "usage: caplv-hostctl {mkdir|write|rm|exists|mount-tmpfs|umount} <path> [arg]"
+          }
+
+          # Canonicalise PATH and require the result to stay under $BASE.
+          # realpath -m resolves '..' and any symlinked component without
+          # requiring the leaf to exist, so neither traversal nor a planted
+          # symlink can point the operation outside the CAPLV directory.
+          resolve() {
+            local raw=$1 canon
+            [[ $raw == /* ]] || die "path must be absolute: $raw"
+            canon=$(realpath -m -- "$raw") || die "cannot resolve path: $raw"
+            [[ $canon == "$BASE" || $canon == "$BASE"/* ]] \
+              || die "refusing to operate outside $BASE: $raw -> $canon"
+            printf '%s' "$canon"
+          }
+
+          ensure_base() {
+            install -d -m 0755 -o root -g root -- "$BASE"
+          }
+
+          [[ $# -ge 2 ]] || usage
+          action=$1
+          target=$(resolve "$2")
+
+          case $action in
+            mkdir)
+              [[ $# -eq 2 ]] || usage
+              ensure_base
+              install -d -m "$DIR_MODE" -o "$OWNER" -g "$GROUP" -- "$target"
+              ;;
+            write)
+              [[ $# -eq 2 ]] || usage
+              # Create with the intended mode before any bytes land, so the
+              # payload is never briefly world-readable, then overwrite in
+              # place — the redirect truncates but keeps the mode.
+              #
+              # In session mode the containing directory is owned by the service
+              # account (the per-user libvirt daemon creates volume files there),
+              # so it could plant a symlink between the resolve above and the
+              # write below. Dropping to that account for the write closes the
+              # race: following such a symlink then grants no more than the
+              # account already has. In system mode the directory is root-owned
+              # and unwritable by the service account, so no race exists.
+              if [[ $LIBVIRT_MODE == session ]]; then
+                runuser -u "$CAPLV_USER" -- install -m "$FILE_MODE" /dev/null "$target"
+                runuser -u "$CAPLV_USER" -- tee "$target" > /dev/null
+              else
+                install -m "$FILE_MODE" -o "$OWNER" -g "$GROUP" /dev/null "$target"
+                cat > "$target"
+              fi
+              ;;
+            rm)
+              [[ $# -eq 2 ]] || usage
+              rm -f -- "$target"
+              ;;
+            exists)
+              [[ $# -eq 2 ]] || usage
+              # The artifact directories are not world-traversable any more, so
+              # the service account cannot stat them directly.
+              if [[ -e $target ]]; then echo present; else echo missing; fi
+              ;;
+            mount-tmpfs)
+              [[ $# -le 3 ]] || usage
+              # A bare `mount -t tmpfs` leaves the mount root 1777 (tmpfs's
+              # default), i.e. world-writable, so uid/gid/mode are always set.
+              opts="mode=$DIR_MODE"
+              if [[ $LIBVIRT_MODE == session ]]; then
+                uid=$(id -u -- "$CAPLV_USER") || die "no such user: $CAPLV_USER"
+                gid=$(id -g -- "$CAPLV_USER") || die "no such user: $CAPLV_USER"
+              else
+                uid=0
+                gid=$(getent group qemu | cut -d: -f3)
+                [[ -n $gid ]] || die "group 'qemu' does not exist; is qemu-kvm installed?"
+              fi
+              opts+=",uid=$uid,gid=$gid"
+              if [[ $# -eq 3 && -n $3 ]]; then
+                # tmpfs size= syntax only: a percentage, or a byte count with an
+                # optional unit suffix. Anything else could smuggle in a second
+                # mount option past the comma.
+                [[ $3 =~ ^([1-9][0-9]?|100)%$|^[1-9][0-9]*[KMGTkmgt]?$ ]] \
+                  || die "invalid tmpfs size: $3"
+                opts+=",size=$3"
+              fi
+              ensure_base
+              install -d -m "$DIR_MODE" -o "$OWNER" -g "$GROUP" -- "$target"
+              mount -t tmpfs -o "$opts" tmpfs "$target"
+              ;;
+            umount)
+              [[ $# -eq 2 ]] || usage
+              umount -- "$target" 2>/dev/null || true
+              rmdir -- "$target" 2>/dev/null || true
+              ;;
+            *)
+              usage
+              ;;
+          esac
+        dest: /usr/local/sbin/caplv-hostctl
+        owner: root
+        group: root
+        mode: "0755"
 
     - name: Configure sudoers for caplv
       ansible.builtin.copy:
         content: |
-          # CAPLV service account — restricted sudo for tmpfs and file operations.
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/install -d -m 0755 /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/chmod 0755 /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/chmod 0644 /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs tmpfs /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o size=* tmpfs /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o uid=* -o gid=* tmpfs /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/mount -t tmpfs -o size=* -o uid=* -o gid=* tmpfs /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/umount /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/rmdir /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/tee /run/caplv/*
-          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/bin/rm -f /run/caplv/*
+          # CAPLV service account — sudo is limited to the helper below, which
+          # validates its own arguments. Do not add wildcard path rules here:
+          # a '*' in a sudoers command argument matches '/' and '..' as well,
+          # so any such rule grants write access to the whole filesystem.
+          {{ caplv_user }} ALL=(root) NOPASSWD: /usr/local/sbin/caplv-hostctl
         dest: "/etc/sudoers.d/{{ caplv_user }}"
         mode: "0440"
         validate: "visudo -cf %s"
