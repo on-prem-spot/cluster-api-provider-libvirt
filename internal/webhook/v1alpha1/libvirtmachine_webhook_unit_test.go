@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -315,5 +316,132 @@ func TestValidateUpdate_AllowNoOpWithProviderID(t *testing.T) {
 	_, err := v.ValidateUpdate(context.Background(), oldObj, newObj)
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
+// --- Node label / annotation key restrictions ---
+//
+// The controller patches Nodes with its own cluster-scoped identity, so a
+// LibvirtMachine author must not be able to write keys that decide scheduling,
+// policy or node role. Third-party keys stay writable.
+
+func TestValidateCreate_RejectsReservedNodeLabelKeys(t *testing.T) {
+	for _, key := range []string{
+		"node-role.kubernetes.io/master",
+		"node-restriction.kubernetes.io/fips",
+		"topology.kubernetes.io/zone",
+		"kubernetes.io/os",
+		"beta.kubernetes.io/arch",
+		"foo.k8s.io/bar",
+		"NODE-ROLE.KUBERNETES.IO/master",
+	} {
+		v := &LibvirtMachineCustomValidator{}
+		spec := testMachineSpec()
+		spec.NodeLabels = map[string]string{key: "x"}
+		obj := &infrav1.LibvirtMachine{Spec: spec}
+		if _, err := v.ValidateCreate(context.Background(), obj); err == nil {
+			t.Errorf("expected reserved node label %q to be rejected", key)
+		}
+	}
+}
+
+func TestValidateCreate_AllowsThirdPartyNodeLabelKeys(t *testing.T) {
+	v := &LibvirtMachineCustomValidator{}
+	spec := testMachineSpec()
+	spec.NodeLabels = map[string]string{
+		"k8s.ovn.org/egress-assignable": "",
+		"dynatrace":                     "monitored",
+		"aqua/scan":                     "enabled",
+		"example.com/team":              "platform",
+		"notk8s.io/x":                   "y",
+	}
+	obj := &infrav1.LibvirtMachine{Spec: spec}
+	if _, err := v.ValidateCreate(context.Background(), obj); err != nil {
+		t.Errorf("expected third-party node labels to be accepted, got: %v", err)
+	}
+}
+
+// CAPLV records which keys it owns in these annotations. An author who could
+// set them directly could name any pre-existing label as CAPLV-managed and have
+// the next reconcile delete it.
+func TestValidateCreate_RejectsCAPLVOwnershipAnnotations(t *testing.T) {
+	for _, key := range []string{
+		infrav1.ManagedNodeLabelsAnnotation,
+		infrav1.ManagedNodeAnnotationsAnnotation,
+	} {
+		v := &LibvirtMachineCustomValidator{}
+		spec := testMachineSpec()
+		spec.NodeAnnotations = map[string]string{key: "some-other-label"}
+		obj := &infrav1.LibvirtMachine{Spec: spec}
+		if _, err := v.ValidateCreate(context.Background(), obj); err == nil {
+			t.Errorf("expected reserved annotation %q to be rejected", key)
+		}
+	}
+}
+
+func TestValidateCreate_RejectsReservedNodeAnnotationKeys(t *testing.T) {
+	v := &LibvirtMachineCustomValidator{}
+	spec := testMachineSpec()
+	spec.NodeAnnotations = map[string]string{"kubernetes.io/config.source": "file"}
+	obj := &infrav1.LibvirtMachine{Spec: spec}
+	if _, err := v.ValidateCreate(context.Background(), obj); err == nil {
+		t.Error("expected reserved node annotation to be rejected")
+	}
+}
+
+// A machine created before this restriction existed must keep reconciling. The
+// reconciler writes spec.providerID, which is an update, so re-checking keys it
+// is merely carrying forward would wedge the machine short of Ready.
+func TestValidateUpdate_AllowsCarryingForwardAPreExistingReservedKey(t *testing.T) {
+	v := &LibvirtMachineCustomValidator{}
+	spec := testMachineSpec()
+	spec.NodeLabels = map[string]string{"node-role.kubernetes.io/worker": ""}
+	old := &infrav1.LibvirtMachine{Spec: spec}
+
+	updated := &infrav1.LibvirtMachine{Spec: *spec.DeepCopy()}
+	updated.Spec.ProviderID = ptr.To("libvirt:///host-01/ns-cluster-machine")
+
+	if _, err := v.ValidateUpdate(context.Background(), old, updated); err != nil {
+		t.Errorf("expected the providerID write to be allowed, got: %v", err)
+	}
+}
+
+// Introducing a reserved key on update is still refused. Spec immutability
+// would also catch this today; the check is kept so the guard survives that
+// rule being relaxed, hence the assertion on which error fired.
+func TestValidateUpdate_RejectsNewlyAddedReservedNodeLabelKey(t *testing.T) {
+	v := &LibvirtMachineCustomValidator{}
+	old := &infrav1.LibvirtMachine{Spec: testMachineSpec()}
+
+	spec := testMachineSpec()
+	spec.NodeLabels = map[string]string{"node-role.kubernetes.io/master": ""}
+	updated := &infrav1.LibvirtMachine{Spec: spec}
+
+	_, err := v.ValidateUpdate(context.Background(), old, updated)
+	if err == nil {
+		t.Fatal("expected a newly added reserved node label to be rejected")
+	}
+	if !strings.Contains(err.Error(), "spec.nodeLabels[node-role.kubernetes.io/master]") {
+		t.Errorf("expected the nodeLabels check to fire, got: %v", err)
+	}
+}
+
+// Changing the value of a reserved key is a fresh assertion, not a carry-over.
+func TestValidateUpdate_RejectsChangedReservedNodeLabelValue(t *testing.T) {
+	v := &LibvirtMachineCustomValidator{}
+	spec := testMachineSpec()
+	spec.NodeLabels = map[string]string{"node-restriction.kubernetes.io/pool": "a"}
+	old := &infrav1.LibvirtMachine{Spec: spec}
+
+	changed := *spec.DeepCopy()
+	changed.NodeLabels = map[string]string{"node-restriction.kubernetes.io/pool": "b"}
+	updated := &infrav1.LibvirtMachine{Spec: changed}
+
+	_, err := v.ValidateUpdate(context.Background(), old, updated)
+	if err == nil {
+		t.Fatal("expected a changed reserved node label value to be rejected")
+	}
+	if !strings.Contains(err.Error(), "spec.nodeLabels[node-restriction.kubernetes.io/pool]") {
+		t.Errorf("expected the nodeLabels check to fire, got: %v", err)
 	}
 }

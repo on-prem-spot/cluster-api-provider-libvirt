@@ -19,9 +19,12 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"reflect"
 	"regexp"
+	"slices"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -80,6 +83,7 @@ func (v *LibvirtMachineCustomValidator) ValidateCreate(ctx context.Context, obj 
 	}
 
 	allErrs = append(allErrs, validateShellSafeLibvirtFields(obj.Spec)...)
+	allErrs = append(allErrs, validateNodeMetadata(obj.Spec, nil)...)
 
 	// Reject full-clone when baseImagePool differs from storagePool.
 	// virsh vol-clone cannot clone across pools.
@@ -122,6 +126,7 @@ func (v *LibvirtMachineCustomValidator) ValidateUpdate(_ context.Context, oldObj
 	var allErrs field.ErrorList
 
 	allErrs = append(allErrs, validateShellSafeLibvirtFields(newObj.Spec)...)
+	allErrs = append(allErrs, validateNodeMetadata(newObj.Spec, &oldObj.Spec)...)
 
 	// ProviderID transitions: only nil->value is allowed. Once set, it cannot
 	// be changed or cleared.
@@ -161,6 +166,111 @@ func (v *LibvirtMachineCustomValidator) ValidateUpdate(_ context.Context, oldObj
 	}
 
 	return nil, nil
+}
+
+// reservedNodeKeyDomains are label/annotation domains a LibvirtMachine author
+// may not write to a Node. The controller patches Nodes with its own
+// cluster-scoped identity, so without this an author who holds only namespaced
+// LibvirtMachine rights could set keys that decide scheduling, policy, and node
+// role — which is exactly the escalation the NodeRestriction admission plugin
+// exists to prevent for kubelets. Everything outside these domains stays
+// writable, so third-party keys such as "dynatrace", "aqua" or
+// "k8s.ovn.org/egress-assignable" are unaffected.
+var reservedNodeKeyDomains = []string{
+	"node-restriction.kubernetes.io",
+	"node-role.kubernetes.io",
+	"kubernetes.io",
+	"k8s.io",
+}
+
+// reservedNodeAnnotations are the annotations CAPLV uses to track which keys it
+// owns on a Node. Letting an author set them directly would let them name any
+// existing label as CAPLV-managed and have the next reconcile delete it.
+var reservedNodeAnnotations = []string{
+	infrastructurev1alpha1.ManagedNodeLabelsAnnotation,
+	infrastructurev1alpha1.ManagedNodeAnnotationsAnnotation,
+}
+
+// keyDomain returns the domain part of a label/annotation key ("" when the key
+// is unprefixed, e.g. "beta.kubernetes.io/arch" -> "beta.kubernetes.io").
+func keyDomain(key string) string {
+	domain, _, ok := strings.Cut(key, "/")
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(domain)
+}
+
+// isReservedNodeKey reports whether key sits in a reserved domain, matching the
+// domain itself and any subdomain of it.
+func isReservedNodeKey(key string) bool {
+	domain := keyDomain(key)
+	if domain == "" {
+		return false
+	}
+	for _, reserved := range reservedNodeKeyDomains {
+		if domain == reserved || strings.HasSuffix(domain, "."+reserved) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateNodeMetadata rejects reserved keys in spec.nodeLabels and
+// spec.nodeAnnotations. A nil oldSpec (create) checks every key; on update only
+// keys this change introduces or alters are checked.
+//
+// Carrying a pre-existing key forward has to stay legal. ValidateUpdate already
+// makes both fields immutable, so on update the only reserved keys reachable
+// here are ones written before this restriction existed — and the reconciler
+// sets spec.providerID, which is itself an update, so rejecting them would wedge
+// the machine short of Ready rather than protect anything. Checking only the
+// delta keeps the guard meaningful if that immutability rule is ever relaxed.
+func validateNodeMetadata(
+	spec infrastructurev1alpha1.LibvirtMachineSpec,
+	oldSpec *infrastructurev1alpha1.LibvirtMachineSpec,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	var oldLabels, oldAnnotations map[string]string
+	if oldSpec != nil {
+		oldLabels, oldAnnotations = oldSpec.NodeLabels, oldSpec.NodeAnnotations
+	}
+
+	labelsPath := field.NewPath("spec", "nodeLabels")
+	for _, k := range slices.Sorted(maps.Keys(spec.NodeLabels)) {
+		if carriedForward(oldLabels, k, spec.NodeLabels[k]) {
+			continue
+		}
+		if isReservedNodeKey(k) {
+			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(k),
+				fmt.Sprintf("key is in the reserved domain %q and may not be set on a Node by a LibvirtMachine", keyDomain(k))))
+		}
+	}
+
+	annotationsPath := field.NewPath("spec", "nodeAnnotations")
+	for _, k := range slices.Sorted(maps.Keys(spec.NodeAnnotations)) {
+		if carriedForward(oldAnnotations, k, spec.NodeAnnotations[k]) {
+			continue
+		}
+		if slices.Contains(reservedNodeAnnotations, k) {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(k),
+				"annotation is reserved for CAPLV's own node-ownership bookkeeping"))
+			continue
+		}
+		if isReservedNodeKey(k) {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(k),
+				fmt.Sprintf("key is in the reserved domain %q and may not be set on a Node by a LibvirtMachine", keyDomain(k))))
+		}
+	}
+
+	return allErrs
+}
+
+// carriedForward reports whether key already held value before this update.
+func carriedForward(old map[string]string, key, value string) bool {
+	prev, ok := old[key]
+	return ok && prev == value
 }
 
 func validateShellSafeLibvirtFields(spec infrastructurev1alpha1.LibvirtMachineSpec) field.ErrorList {
