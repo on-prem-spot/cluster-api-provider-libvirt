@@ -87,8 +87,13 @@ spec:
                                 minLength: 1
                                 type: string
                               namespace:
-                                description: Namespace of the Secret. Defaults to
-                                  the LibvirtCluster's namespace.
+                                description: |-
+                                  Namespace of the Secret. Deprecated: the Secret must live in the
+                                  LibvirtCluster's own namespace, so the only accepted values are "" and
+                                  that namespace. Naming any other namespace is rejected — the controller
+                                  reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                  endpoint the credential is sent to, so an unconfined reference here is a
+                                  credential-exfiltration primitive.
                                 type: string
                             required:
                             - name
@@ -136,8 +141,13 @@ spec:
                                 minLength: 1
                                 type: string
                               namespace:
-                                description: Namespace of the Secret. Defaults to
-                                  the LibvirtCluster's namespace.
+                                description: |-
+                                  Namespace of the Secret. Deprecated: the Secret must live in the
+                                  LibvirtCluster's own namespace, so the only accepted values are "" and
+                                  that namespace. Naming any other namespace is rejected — the controller
+                                  reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                  endpoint the credential is sent to, so an unconfined reference here is a
+                                  credential-exfiltration primitive.
                                 type: string
                             required:
                             - name
@@ -175,8 +185,13 @@ spec:
                                 minLength: 1
                                 type: string
                               namespace:
-                                description: Namespace of the Secret. Defaults to
-                                  the LibvirtCluster's namespace.
+                                description: |-
+                                  Namespace of the Secret. Deprecated: the Secret must live in the
+                                  LibvirtCluster's own namespace, so the only accepted values are "" and
+                                  that namespace. Naming any other namespace is rejected — the controller
+                                  reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                  endpoint the credential is sent to, so an unconfined reference here is a
+                                  credential-exfiltration primitive.
                                 type: string
                             required:
                             - name
@@ -283,7 +298,7 @@ spec:
                           credentialsSecretRef:
                             description: |-
                               CredentialsSecretRef references a Secret in the LibvirtCluster's
-                              namespace (or .namespace when set) containing registry credentials.
+                              namespace containing registry credentials.
                               The Secret is read in two formats, in order of preference:
                                 1. `.dockerconfigjson` (a kubernetes.io/dockerconfigjson Secret).
                                 2. plain `username` / `password` keys.
@@ -293,8 +308,13 @@ spec:
                                 minLength: 1
                                 type: string
                               namespace:
-                                description: Namespace of the Secret. Defaults to
-                                  the LibvirtCluster's namespace.
+                                description: |-
+                                  Namespace of the Secret. Deprecated: the Secret must live in the
+                                  LibvirtCluster's own namespace, so the only accepted values are "" and
+                                  that namespace. Naming any other namespace is rejected — the controller
+                                  reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                  endpoint the credential is sent to, so an unconfined reference here is a
+                                  credential-exfiltration primitive.
                                 type: string
                             required:
                             - name
@@ -339,7 +359,7 @@ spec:
                           credentialsSecretRef:
                             description: |-
                               CredentialsSecretRef references a Secret in the LibvirtCluster's
-                              namespace (or .namespace when set) containing static credentials.
+                              namespace containing static credentials.
                               Recognized keys: `accessKeyID`, `secretAccessKey`, optional
                               `sessionToken`. If unset, the resolver attempts anonymous reads.
                             properties:
@@ -348,8 +368,13 @@ spec:
                                 minLength: 1
                                 type: string
                               namespace:
-                                description: Namespace of the Secret. Defaults to
-                                  the LibvirtCluster's namespace.
+                                description: |-
+                                  Namespace of the Secret. Deprecated: the Secret must live in the
+                                  LibvirtCluster's own namespace, so the only accepted values are "" and
+                                  that namespace. Naming any other namespace is rejected — the controller
+                                  reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                  endpoint the credential is sent to, so an unconfined reference here is a
+                                  credential-exfiltration primitive.
                                 type: string
                             required:
                             - name

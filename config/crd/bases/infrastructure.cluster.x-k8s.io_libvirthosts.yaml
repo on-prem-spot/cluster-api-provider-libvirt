@@ -119,8 +119,12 @@ spec:
                     type: string
                   namespace:
                     description: |-
-                      namespace is the namespace of the Secret.
-                      If not specified, the namespace of the referencing resource is used.
+                      namespace is the namespace of the Secret. Deprecated: the Secret must
+                      live in the same namespace as the resource that references it, so the
+                      only accepted values are "" and that namespace. Naming any other
+                      namespace is rejected — the controller reads Secrets with cluster-wide
+                      RBAC, so honouring an arbitrary namespace here would let the author of a
+                      namespaced resource borrow a Secret they cannot read themselves.
                     type: string
                 required:
                 - name

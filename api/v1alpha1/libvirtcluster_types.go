@@ -259,7 +259,7 @@ type OCIBootArtifactsSource struct {
 	InsecureSkipTLSVerify bool `json:"insecureSkipTLSVerify,omitempty"`
 
 	// CredentialsSecretRef references a Secret in the LibvirtCluster's
-	// namespace (or .namespace when set) containing registry credentials.
+	// namespace containing registry credentials.
 	// The Secret is read in two formats, in order of preference:
 	//   1. `.dockerconfigjson` (a kubernetes.io/dockerconfigjson Secret).
 	//   2. plain `username` / `password` keys.
@@ -305,7 +305,7 @@ type S3BootArtifactsSource struct {
 	InsecureSkipTLSVerify bool `json:"insecureSkipTLSVerify,omitempty"`
 
 	// CredentialsSecretRef references a Secret in the LibvirtCluster's
-	// namespace (or .namespace when set) containing static credentials.
+	// namespace containing static credentials.
 	// Recognized keys: `accessKeyID`, `secretAccessKey`, optional
 	// `sessionToken`. If unset, the resolver attempts anonymous reads.
 	// +optional
@@ -323,7 +323,12 @@ type BootArtifactsSecretReference struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
-	// Namespace of the Secret. Defaults to the LibvirtCluster's namespace.
+	// Namespace of the Secret. Deprecated: the Secret must live in the
+	// LibvirtCluster's own namespace, so the only accepted values are "" and
+	// that namespace. Naming any other namespace is rejected — the controller
+	// reads Secrets with cluster-wide RBAC and this spec also chooses the
+	// endpoint the credential is sent to, so an unconfined reference here is a
+	// credential-exfiltration primitive.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }

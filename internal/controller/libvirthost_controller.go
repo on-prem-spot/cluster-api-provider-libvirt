@@ -140,10 +140,20 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 		return
 	}
 
-	// Fetch the SSH secret.
-	secretNS := host.Spec.SecretRef.Namespace
-	if secretNS == "" {
-		secretNS = host.Namespace
+	// Fetch the SSH secret. The reference is confined to this host's own
+	// namespace; see resolveSecretNamespace.
+	secretNS, err := resolveSecretNamespace(host.Spec.SecretRef.Namespace, host.Namespace, "spec.secretRef.namespace")
+	if err != nil {
+		log.Error(err, "Rejected Secret reference")
+		host.Status.Ready = false
+		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
+			Type:               infrav1.HostReachableCondition,
+			Status:             metav1.ConditionFalse,
+			Reason:             infrav1.ReasonConnectionFailed,
+			Message:            err.Error(),
+			ObservedGeneration: host.Generation,
+		})
+		return
 	}
 	secret := &corev1.Secret{}
 	secretKey := types.NamespacedName{Namespace: secretNS, Name: host.Spec.SecretRef.Name}

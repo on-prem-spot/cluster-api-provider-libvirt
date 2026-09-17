@@ -875,9 +875,10 @@ func (r *LibvirtMachineReconciler) resolveBaseImageCredentials(
 		return nil, nil
 	}
 
-	ns := ref.Namespace
-	if ns == "" {
-		ns = libvirtCluster.Namespace
+	ns, err := resolveSecretNamespace(ref.Namespace, libvirtCluster.Namespace,
+		"spec.baseImage.source.*.credentialsSecretRef.namespace")
+	if err != nil {
+		return nil, err
 	}
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, secret); err != nil {
@@ -1205,9 +1206,10 @@ func (r *LibvirtMachineReconciler) resolveBootArtifactsCredentials(
 		return nil, nil
 	}
 
-	ns := ref.Namespace
-	if ns == "" {
-		ns = libvirtCluster.Namespace
+	ns, err := resolveSecretNamespace(ref.Namespace, libvirtCluster.Namespace,
+		"spec.bootArtifacts.source.*.credentialsSecretRef.namespace")
+	if err != nil {
+		return nil, err
 	}
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, secret); err != nil {
@@ -1597,9 +1599,9 @@ func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infr
 		return nil, nil, fmt.Errorf("LibvirtHost %s has no secretRef configured", host.Name)
 	}
 
-	secretNS := host.Spec.SecretRef.Namespace
-	if secretNS == "" {
-		secretNS = host.Namespace
+	secretNS, err := resolveSecretNamespace(host.Spec.SecretRef.Namespace, host.Namespace, "spec.secretRef.namespace")
+	if err != nil {
+		return nil, nil, err
 	}
 	secret := &corev1.Secret{}
 	secretKey := types.NamespacedName{Namespace: secretNS, Name: host.Spec.SecretRef.Name}

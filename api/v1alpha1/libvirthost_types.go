@@ -27,8 +27,12 @@ type SecretReference struct {
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// namespace is the namespace of the Secret.
-	// If not specified, the namespace of the referencing resource is used.
+	// namespace is the namespace of the Secret. Deprecated: the Secret must
+	// live in the same namespace as the resource that references it, so the
+	// only accepted values are "" and that namespace. Naming any other
+	// namespace is rejected — the controller reads Secrets with cluster-wide
+	// RBAC, so honouring an arbitrary namespace here would let the author of a
+	// namespaced resource borrow a Secret they cannot read themselves.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
