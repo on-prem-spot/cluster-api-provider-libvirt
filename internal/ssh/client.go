@@ -32,12 +32,41 @@ import (
 
 const defaultSSHPort = 22
 
-// NewSSHClient creates an SSH client connection to the libvirt host using credentials
-// from the provided Secret.
+// NewSSHClient creates an SSH client connection to the libvirt host using
+// credentials from the provided Secret. The host's SSH host key must be pinned
+// via spec.hostKeyFingerprint; see NewSSHClientFactory to relax that.
 func NewSSHClient(ctx context.Context, host *infrav1.LibvirtHost, secret *corev1.Secret) (*gossh.Client, error) {
+	return NewSSHClientFactory(false)(ctx, host, secret)
+}
+
+// NewSSHClientFactory returns a client constructor bound to a host-key policy.
+//
+// allowInsecureHostKeys corresponds to the manager's --allow-insecure-host-keys
+// flag. It defaults to false, in which case a LibvirtHost with no
+// spec.hostKeyFingerprint is refused outright rather than connected to with host
+// key verification silently disabled: an unauthenticated SSH channel hands the
+// worker Ignition config — which carries the cluster's kubelet bootstrap
+// credentials — to whoever answers on that address.
+func NewSSHClientFactory(allowInsecureHostKeys bool) func(context.Context, *infrav1.LibvirtHost, *corev1.Secret) (*gossh.Client, error) {
+	return func(ctx context.Context, host *infrav1.LibvirtHost, secret *corev1.Secret) (*gossh.Client, error) {
+		return newSSHClient(ctx, host, secret, allowInsecureHostKeys)
+	}
+}
+
+func newSSHClient(
+	ctx context.Context,
+	host *infrav1.LibvirtHost,
+	secret *corev1.Secret,
+	allowInsecureHostKeys bool,
+) (*gossh.Client, error) {
 	user, hostname, port, err := ParseLibvirtURI(host.Spec.URI)
 	if err != nil {
 		return nil, fmt.Errorf("parsing libvirt URI: %w", err)
+	}
+
+	hostKeyCallback, err := HostKeyCallback(host.Spec.HostKeyFingerprint, allowInsecureHostKeys)
+	if err != nil {
+		return nil, err
 	}
 
 	privateKeyBytes, ok := secret.Data["ssh-privatekey"]
@@ -55,7 +84,7 @@ func NewSSHClient(ctx context.Context, host *infrav1.LibvirtHost, secret *corev1
 		Auth: []gossh.AuthMethod{
 			gossh.PublicKeys(signer),
 		},
-		HostKeyCallback: VerifyHostKey(host.Spec.HostKeyFingerprint),
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	addr := net.JoinHostPort(hostname, strconv.Itoa(port))
@@ -76,13 +105,36 @@ func NewSSHClient(ctx context.Context, host *infrav1.LibvirtHost, secret *corev1
 	return gossh.NewClient(sshConn, chans, reqs), nil
 }
 
-// VerifyHostKey returns an SSH HostKeyCallback that verifies the remote host key
-// fingerprint matches the expected SHA256 fingerprint. If expectedFingerprint is
-// empty, any host key is accepted (insecure).
-func VerifyHostKey(expectedFingerprint string) gossh.HostKeyCallback {
+// HostKeyCallback returns the SSH HostKeyCallback for a host, failing closed
+// when no fingerprint is pinned.
+//
+// An empty expectedFingerprint is an error unless allowInsecure is set, because
+// the alternative — gossh.InsecureIgnoreHostKey — accepts any host key and so
+// accepts any impersonator. The fingerprint is emitted by
+// deploy/ansible/setup-host.yaml at the end of host setup; copy it into
+// LibvirtHost.spec.hostKeyFingerprint.
+func HostKeyCallback(expectedFingerprint string, allowInsecure bool) (gossh.HostKeyCallback, error) {
 	if expectedFingerprint == "" {
-		return gossh.InsecureIgnoreHostKey()
+		if !allowInsecure {
+			return nil, fmt.Errorf(
+				"spec.hostKeyFingerprint is empty: refusing to connect without SSH host key verification " +
+					"(set it to the host's SHA256:... fingerprint, or start the manager with " +
+					"--allow-insecure-host-keys to accept any host key)")
+		}
+		return gossh.InsecureIgnoreHostKey(), nil
 	}
+	return verifyHostKey(expectedFingerprint), nil
+}
+
+// VerifyHostKey returns an SSH HostKeyCallback that verifies the remote host key
+// fingerprint matches the expected SHA256 fingerprint. An empty
+// expectedFingerprint rejects every host key; use HostKeyCallback to choose the
+// policy for that case.
+func VerifyHostKey(expectedFingerprint string) gossh.HostKeyCallback {
+	return verifyHostKey(expectedFingerprint)
+}
+
+func verifyHostKey(expectedFingerprint string) gossh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
 		actual := gossh.FingerprintSHA256(key)
 		if actual != expectedFingerprint {

@@ -71,6 +71,7 @@ func main() {
 	var enableHTTP2 bool
 	var maxConcurrentReconciles int
 	var baseImageCacheDir string
+	var allowInsecureHostKeys bool
 	var allowInsecureImageTransport bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -97,6 +98,10 @@ func main() {
 		"Directory inside the controller pod where base qcow2 images are staged "+
 			"after download. Should be backed by an emptyDir (or a PVC if survival "+
 			"across pod restarts is desired). Content-addressed by sha256.")
+	flag.BoolVar(&allowInsecureHostKeys, "allow-insecure-host-keys", false,
+		"Connect to a LibvirtHost that has no spec.hostKeyFingerprint, accepting any SSH host key. "+
+			"Off by default: an unverified SSH channel exposes the worker ignition config, which "+
+			"carries the cluster's kubelet bootstrap credentials, to whoever answers on that address.")
 	flag.BoolVar(&allowInsecureImageTransport, "allow-insecure-image-transport", false,
 		"Permit LibvirtCluster.spec.baseImage sources that disable transport authentication "+
 			"(plain http:// URLs, oci.plainHTTP, s3.insecure, or any insecureSkipTLSVerify). "+
@@ -174,8 +179,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Wire SSH client factory.
-	sshClientFactory := controller.SSHClientFactory(libvirtssh.NewSSHClient)
+	// Wire SSH client factory. Host-key verification is mandatory unless the
+	// operator explicitly opted out.
+	if allowInsecureHostKeys {
+		setupLog.Info("WARNING: --allow-insecure-host-keys is set; LibvirtHosts without a " +
+			"hostKeyFingerprint will be connected to without SSH host key verification")
+	}
+	sshClientFactory := controller.SSHClientFactory(libvirtssh.NewSSHClientFactory(allowInsecureHostKeys))
 
 	// Wire libvirt client factory.
 	libvirtClientFactory := func(sshClient *gossh.Client, connURI string) libvirt.Client {
