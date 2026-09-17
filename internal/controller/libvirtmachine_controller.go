@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"sort"
@@ -887,7 +888,7 @@ func (r *LibvirtMachineReconciler) resolveBaseImageCredentials(
 
 	switch bi.Source.Type {
 	case infrav1.BootArtifactsSourceOCI:
-		creds, err := ociCredentialsFromSecret(secret, bi.Source.OCI.Reference)
+		creds, err := ociCredentialsFromSecret(secret, registryHostFromReference(bi.Source.OCI.Reference))
 		if err != nil {
 			return nil, err
 		}
@@ -904,7 +905,9 @@ func (r *LibvirtMachineReconciler) resolveBaseImageCredentials(
 		}, nil
 	case infrav1.BootArtifactsSourceHTTPS:
 		// HTTPS uses username/password from the same shapes as OCI basic auth.
-		creds, err := ociCredentialsFromSecret(secret, "")
+		// The host comes from the URL the credential will be sent to, so a
+		// dockerconfigjson Secret can only yield its entry for that host.
+		creds, err := ociCredentialsFromSecret(secret, hostFromURL(bi.Source.HTTPS.URL))
 		if err != nil {
 			return nil, err
 		}
@@ -1218,7 +1221,7 @@ func (r *LibvirtMachineReconciler) resolveBootArtifactsCredentials(
 
 	switch src.Type {
 	case infrav1.BootArtifactsSourceOCI:
-		return ociCredentialsFromSecret(secret, src.OCI.Reference)
+		return ociCredentialsFromSecret(secret, registryHostFromReference(src.OCI.Reference))
 	case infrav1.BootArtifactsSourceS3:
 		return s3CredentialsFromSecret(secret)
 	default:
@@ -1227,10 +1230,13 @@ func (r *LibvirtMachineReconciler) resolveBootArtifactsCredentials(
 }
 
 // ociCredentialsFromSecret prefers a kubernetes.io/dockerconfigjson Secret
-// and falls back to plain username/password keys.
-func ociCredentialsFromSecret(secret *corev1.Secret, reference string) (*bootartifacts.Credentials, error) {
+// and falls back to plain username/password keys. host is the registry (or
+// HTTP) host the credential will actually be sent to; it selects the
+// dockerconfigjson entry and must not be empty when the Secret is in that
+// format.
+func ociCredentialsFromSecret(secret *corev1.Secret, host string) (*bootartifacts.Credentials, error) {
 	if raw, ok := secret.Data[corev1.DockerConfigJsonKey]; ok && len(raw) > 0 {
-		user, pass, err := lookupDockerConfigAuth(raw, reference)
+		user, pass, err := lookupDockerConfigAuth(raw, host)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", corev1.DockerConfigJsonKey, err)
 		}
@@ -1268,9 +1274,18 @@ func firstNonEmptyString(candidates ...[]byte) string {
 }
 
 // lookupDockerConfigAuth parses a dockerconfigjson blob and returns the
-// username/password for the host of the supplied reference, falling back to
-// any registered entry if no host match is found.
-func lookupDockerConfigAuth(raw []byte, reference string) (string, string, error) {
+// username/password registered for exactly this host.
+//
+// There is deliberately no substring match and no "use whatever entry is
+// there" fallback: the host is taken from a user-supplied reference or URL, so
+// either one would hand a credential issued for one registry to a server the
+// spec author picked. An entry keyed by a URL rather than a bare host is
+// accepted (docker login writes both forms), but only when its host component
+// matches exactly.
+func lookupDockerConfigAuth(raw []byte, host string) (string, string, error) {
+	if host == "" {
+		return "", "", fmt.Errorf("cannot select a %s entry without a target host", corev1.DockerConfigJsonKey)
+	}
 	var cfg struct {
 		Auths map[string]struct {
 			Username string `json:"username"`
@@ -1281,19 +1296,39 @@ func lookupDockerConfigAuth(raw []byte, reference string) (string, string, error
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return "", "", err
 	}
-	host := registryHostFromReference(reference)
-	if entry, ok := cfg.Auths[host]; ok {
-		return decodeDockerAuth(entry.Username, entry.Password, entry.Auth)
-	}
-	for h, entry := range cfg.Auths {
-		if strings.Contains(h, host) || strings.Contains(host, h) {
+	want := canonicalRegistryHost(host)
+	for key, entry := range cfg.Auths {
+		if canonicalRegistryHost(dockerConfigKeyHost(key)) == want {
 			return decodeDockerAuth(entry.Username, entry.Password, entry.Auth)
 		}
 	}
-	for _, entry := range cfg.Auths {
-		return decodeDockerAuth(entry.Username, entry.Password, entry.Auth)
+	return "", "", fmt.Errorf("no %s entry for host %q", corev1.DockerConfigJsonKey, host)
+}
+
+// dockerConfigKeyHost reduces a dockerconfigjson auths key to its host. Keys
+// are written both bare ("quay.io") and as URLs
+// ("https://index.docker.io/v1/") depending on the tool that produced them.
+func dockerConfigKeyHost(key string) string {
+	k := key
+	if i := strings.Index(k, "://"); i >= 0 {
+		k = k[i+len("://"):]
 	}
-	return "", "", fmt.Errorf("no auth entries in dockerconfigjson")
+	if i := strings.Index(k, "/"); i > 0 {
+		k = k[:i]
+	}
+	return k
+}
+
+// canonicalRegistryHost folds the Docker Hub aliases onto one name so an
+// exact match does not reject a legitimate hub credential. Every other host is
+// compared literally, lower-cased.
+func canonicalRegistryHost(host string) string {
+	h := strings.ToLower(host)
+	switch h {
+	case "docker.io", "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com":
+		return "docker.io"
+	}
+	return h
 }
 
 func decodeDockerAuth(user, pass, encoded string) (string, string, error) {
@@ -1314,11 +1349,30 @@ func decodeDockerAuth(user, pass, encoded string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
+// registryHostFromReference returns the registry host an OCI reference resolves
+// to, applying the usual rule that the first path component is a registry only
+// when it looks like one (contains a dot or a port, or is localhost) — anything
+// else is a Docker Hub short name.
 func registryHostFromReference(ref string) string {
-	if i := strings.Index(ref, "/"); i > 0 {
-		return ref[:i]
+	first, _, hasSlash := strings.Cut(ref, "/")
+	if !hasSlash || first == "" {
+		return "docker.io"
 	}
-	return ref
+	if strings.ContainsAny(first, ".:") || first == "localhost" {
+		return first
+	}
+	return "docker.io"
+}
+
+// hostFromURL returns the host[:port] an http(s) URL addresses, or "" if it
+// cannot be parsed. Used to select the credential entry for a base image
+// fetched over plain HTTP basic auth.
+func hostFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 func (r *LibvirtMachineReconciler) ensureRemoteArtifact(
