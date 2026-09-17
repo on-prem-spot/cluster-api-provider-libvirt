@@ -416,7 +416,22 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 	// Apply user-declared Node labels and annotations once kubelet has
 	// registered the Node. Does not block readiness — the infra is ready
 	// when the domain is up; labelling is a follow-on step.
-	return r.reconcileNodeLabels(ctx, libvirtMachine, machineScope.DomainName())
+	return r.reconcileNodeLabels(ctx, libvirtMachine, machineScope.DomainName(), providerID)
+}
+
+// nodeBelongsToMachine reports whether a Node is in fact the one this machine
+// provisioned, by comparing the providerID CAPLV injected into its ignition.
+//
+// The Node is looked up by the name ArtifactBaseName() builds, and that name is
+// an unescaped "<namespace>-<cluster>-<machine>" join: different (cluster,
+// machine) pairs collapse onto one string, so a name match alone does not
+// establish ownership. The second return value is false when the Node has not
+// reported a providerID yet, which is a wait-and-retry rather than a mismatch.
+func nodeBelongsToMachine(node *corev1.Node, wantProviderID string) (owned, known bool) {
+	if node.Spec.ProviderID == "" {
+		return false, false
+	}
+	return node.Spec.ProviderID == wantProviderID, true
 }
 
 // reconcileNodeLabels applies spec.nodeLabels and spec.nodeAnnotations to the
@@ -432,6 +447,7 @@ func (r *LibvirtMachineReconciler) reconcileNodeLabels(
 	ctx context.Context,
 	libvirtMachine *infrav1.LibvirtMachine,
 	nodeName string,
+	providerID string,
 ) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -459,6 +475,34 @@ func (r *LibvirtMachineReconciler) reconcileNodeLabels(
 			return ctrl.Result{RequeueAfter: nodeJoinRequeueInterval}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get Node %q: %w", nodeName, err)
+	}
+
+	// A Node that happens to carry this name but was provisioned by a different
+	// LibvirtMachine is not ours to write to.
+	owned, known := nodeBelongsToMachine(node, providerID)
+	if !known {
+		log.Info("Node has not reported a providerID yet, will retry node labelling", "node", nodeName)
+		apimeta.SetStatusCondition(&libvirtMachine.Status.Conditions, metav1.Condition{
+			Type:               infrav1.NodeLabelledCondition,
+			Status:             metav1.ConditionFalse,
+			Reason:             infrav1.ReasonNodeNotJoined,
+			Message:            fmt.Sprintf("waiting for Node %q to report a providerID", nodeName),
+			ObservedGeneration: libvirtMachine.Generation,
+		})
+		return ctrl.Result{RequeueAfter: nodeJoinRequeueInterval}, nil
+	}
+	if !owned {
+		msg := fmt.Sprintf("Node %q belongs to providerID %q, not %q; refusing to modify it",
+			nodeName, node.Spec.ProviderID, providerID)
+		log.Error(fmt.Errorf("node ownership mismatch"), "Refusing to label Node", "node", nodeName)
+		apimeta.SetStatusCondition(&libvirtMachine.Status.Conditions, metav1.Condition{
+			Type:               infrav1.NodeLabelledCondition,
+			Status:             metav1.ConditionFalse,
+			Reason:             infrav1.ReasonNodeOwnershipMismatch,
+			Message:            msg,
+			ObservedGeneration: libvirtMachine.Generation,
+		})
+		return ctrl.Result{}, nil
 	}
 
 	patchBase := client.MergeFrom(node.DeepCopy())
@@ -1631,13 +1675,24 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 		}
 	}
 
-	// Delete the Node object from the cluster if it exists.
+	// Delete the Node object from the cluster if it exists and is genuinely
+	// this machine's. The name alone does not prove that (see
+	// nodeBelongsToMachine), and deleting a Node evicts its workloads.
 	nodeName := machineScope.DomainName()
 	node := &corev1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err == nil {
-		log.Info("Deleting Node object", "node", nodeName)
-		if err := r.Delete(ctx, node); err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to delete Node object (non-fatal)", "node", nodeName)
+		switch owned, known := nodeBelongsToMachine(node, machineScope.ProviderID()); {
+		case owned:
+			log.Info("Deleting Node object", "node", nodeName)
+			if err := r.Delete(ctx, node); err != nil && !apierrors.IsNotFound(err) {
+				log.Error(err, "Failed to delete Node object (non-fatal)", "node", nodeName)
+			}
+		case !known:
+			log.Info("Node reports no providerID; leaving it in place", "node", nodeName)
+		default:
+			log.Info("Node belongs to a different machine; leaving it in place",
+				"node", nodeName, "nodeProviderID", node.Spec.ProviderID,
+				"machineProviderID", machineScope.ProviderID())
 		}
 	}
 

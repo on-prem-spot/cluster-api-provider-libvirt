@@ -56,6 +56,10 @@ const (
 	ReasonHostNotReady          = "HostNotReady"
 	ReasonNodeNotJoined         = "NodeNotJoined"
 	ReasonBaseImageStaging      = "BaseImageStaging"
+	// ReasonNodeOwnershipMismatch is set when the Node named by this machine's
+	// artifact base name reports a different providerID, i.e. it was
+	// provisioned by some other machine and must not be modified.
+	ReasonNodeOwnershipMismatch = "NodeOwnershipMismatch"
 
 	// Reasons — success
 	ReasonConnectionSucceeded = "ConnectionSucceeded"

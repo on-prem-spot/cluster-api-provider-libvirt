@@ -109,3 +109,24 @@ func TestGetAddresses_StripsCIDR(t *testing.T) {
 		}
 	}
 }
+
+// ArtifactBaseName joins namespace, cluster and machine with an unescaped '-',
+// so distinct (cluster, machine) pairs can render to one name — and that name
+// is what the reconciler looks the Node up by. This is why Node writes are
+// gated on providerID rather than on the name alone. If delimiter escaping is
+// ever added, this test should start failing and the ownership check can be
+// revisited.
+func TestArtifactBaseNameCollides(t *testing.T) {
+	victim := newTestScope()
+	victim.Cluster.Name = "prod"
+	victim.LibvirtMachine.Name = "worker-1"
+
+	other := newTestScope()
+	other.Cluster.Name = "prod-worker"
+	other.LibvirtMachine.Name = "1"
+
+	if victim.ArtifactBaseName() != other.ArtifactBaseName() {
+		t.Fatalf("expected a collision, got %q and %q",
+			victim.ArtifactBaseName(), other.ArtifactBaseName())
+	}
+}
