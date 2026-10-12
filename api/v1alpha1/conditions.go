@@ -68,9 +68,13 @@ const (
 	ReasonProvisioned         = "Provisioned"
 	ReasonArtifactsReady      = "ArtifactsReady"
 	ReasonClusterReady        = "ClusterReady"
-	ReasonNodeLabelled        = "NodeLabelled"
-	ReasonBaseImageStaged     = "BaseImageStaged"
-	ReasonBootstrapDataReady  = "BootstrapDataReady"
+	// ReasonWaitingForControlPlaneEndpoint is set while spec.controlPlaneEndpoint
+	// has no host or no usable port. CAPLV does not provision the endpoint, so
+	// this is a wait rather than a failure.
+	ReasonWaitingForControlPlaneEndpoint = "WaitingForControlPlaneEndpoint"
+	ReasonNodeLabelled                   = "NodeLabelled"
+	ReasonBaseImageStaged                = "BaseImageStaged"
+	ReasonBootstrapDataReady             = "BootstrapDataReady"
 
 	// Reasons — cleanup
 	ReasonCleanupStalled   = "CleanupStalled"

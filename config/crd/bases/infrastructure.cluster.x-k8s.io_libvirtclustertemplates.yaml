@@ -1,0 +1,514 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: libvirtclustertemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: LibvirtClusterTemplate
+    listKind: LibvirtClusterTemplateList
+    plural: libvirtclustertemplates
+    shortNames:
+    - libvirtct
+    singular: libvirtclustertemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          LibvirtClusterTemplate is the Schema for the libvirtclustertemplates API.
+
+          A ClusterClass references this through spec.infrastructure.ref and stamps a
+          LibvirtCluster from it per cluster in the topology. The type exists so
+          ClusterClass can name a CAPLV infrastructure template at all.
+
+          Templates are inert: nothing reconciles them, so there is no status.
+
+          spec.template.spec.controlPlaneEndpoint should normally be left unset here.
+          Each cluster has its own endpoint, and a value baked into the template is
+          copied onto every cluster created from it. A stamped cluster with no
+          endpoint reports Ready=false with reason WaitingForControlPlaneEndpoint
+          until one is set, which is the intended path; the validating webhook warns
+          when a template carries one.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of LibvirtClusterTemplate.
+            properties:
+              template:
+                description: template is the cluster template.
+                properties:
+                  metadata:
+                    description: |-
+                      metadata is the object metadata applied to the LibvirtClusters created
+                      from this template. Only labels and annotations are propagated.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  spec:
+                    description: spec is the LibvirtCluster spec stamped onto each
+                      created cluster.
+                    properties:
+                      baseImage:
+                        description: |-
+                          baseImage, when set, lets the controller distribute the cluster's
+                          root-disk qcow2 base image to every libvirt host that runs a machine in
+                          this cluster. The image is fetched once into the controller-local cache
+                          and SCP'd onto each host as needed; subsequent machines on the same
+                          host reuse the already-staged volume. Hosts no longer need the qcow2
+                          pre-staged via Ansible.
+                        properties:
+                          pool:
+                            description: |-
+                              Pool is the libvirt storage pool name on each host where the image is
+                              staged. Must exist on every LibvirtHost in the cluster.
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9_.:-]+$
+                            type: string
+                          source:
+                            description: |-
+                              Source describes where to fetch the qcow2 from. Gzip-wrapped payloads
+                              (URL ending in .gz, OCI mediaType application/gzip, or any blob whose
+                              first two bytes are 0x1f 0x8b) are decompressed transparently before
+                              the digest is computed.
+                            properties:
+                              https:
+                                description: HTTPSBaseImageSource fetches the qcow2
+                                  over HTTPS.
+                                properties:
+                                  credentialsSecretRef:
+                                    description: |-
+                                      CredentialsSecretRef is a Secret with `username`/`password` keys for
+                                      HTTP Basic auth, or the kubernetes.io/dockerconfigjson layout.
+                                    properties:
+                                      name:
+                                        description: Name of the Secret.
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: |-
+                                          Namespace of the Secret. Deprecated: the Secret must live in the
+                                          LibvirtCluster's own namespace, so the only accepted values are "" and
+                                          that namespace. Naming any other namespace is rejected — the controller
+                                          reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                          endpoint the credential is sent to, so an unconfined reference here is a
+                                          credential-exfiltration primitive.
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  insecureSkipTLSVerify:
+                                    description: |-
+                                      InsecureSkipTLSVerify disables TLS certificate verification when
+                                      fetching the qcow2. Intended only for development or self-signed
+                                      endpoints; prefer adding the serving CA to the controller's trust
+                                      store (e.g. via SSL_CERT_FILE) for production mirrors.
+                                    type: boolean
+                                  sha256:
+                                    description: |-
+                                      SHA256 of the decompressed qcow2. Optional but strongly recommended
+                                      when the URL is mutable; pinned digests prevent accidental version
+                                      drift across the fleet.
+                                    type: string
+                                  url:
+                                    description: |-
+                                      URL is the https:// (or http:// when explicitly allowed by the
+                                      caller's network policy) URL to the qcow2 file.
+                                    type: string
+                                required:
+                                - url
+                                type: object
+                              oci:
+                                description: |-
+                                  OCIBaseImageSource fetches the qcow2 from a single-blob OCI artifact.
+                                  The manifest is expected to contain one layer carrying the qcow2; if the
+                                  layer is annotated with `org.opencontainers.image.title`, BlobTitle
+                                  selects it, otherwise the single layer is taken implicitly.
+                                properties:
+                                  blobTitle:
+                                    description: |-
+                                      BlobTitle is the `org.opencontainers.image.title` annotation
+                                      identifying the qcow2 layer. When empty and the manifest has exactly
+                                      one layer, that layer is selected automatically.
+                                    type: string
+                                  credentialsSecretRef:
+                                    description: CredentialsSecretRef references a
+                                      Secret holding registry credentials.
+                                    properties:
+                                      name:
+                                        description: Name of the Secret.
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: |-
+                                          Namespace of the Secret. Deprecated: the Secret must live in the
+                                          LibvirtCluster's own namespace, so the only accepted values are "" and
+                                          that namespace. Naming any other namespace is rejected — the controller
+                                          reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                          endpoint the credential is sent to, so an unconfined reference here is a
+                                          credential-exfiltration primitive.
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  insecureSkipTLSVerify:
+                                    description: InsecureSkipTLSVerify disables TLS
+                                      certificate verification.
+                                    type: boolean
+                                  plainHTTP:
+                                    description: PlainHTTP allows non-TLS pulls from
+                                      the registry.
+                                    type: boolean
+                                  reference:
+                                    description: Reference is the full OCI reference,
+                                      e.g. "ghcr.io/example/rhcos:4.18".
+                                    type: string
+                                  sha256:
+                                    description: SHA256 of the decompressed qcow2.
+                                      Optional but recommended.
+                                    type: string
+                                required:
+                                - reference
+                                type: object
+                              s3:
+                                description: S3BaseImageSource fetches the qcow2 from
+                                  an S3-compatible object store.
+                                properties:
+                                  bucket:
+                                    type: string
+                                  credentialsSecretRef:
+                                    description: CredentialsSecretRef references a
+                                      Secret holding static credentials.
+                                    properties:
+                                      name:
+                                        description: Name of the Secret.
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: |-
+                                          Namespace of the Secret. Deprecated: the Secret must live in the
+                                          LibvirtCluster's own namespace, so the only accepted values are "" and
+                                          that namespace. Naming any other namespace is rejected — the controller
+                                          reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                          endpoint the credential is sent to, so an unconfined reference here is a
+                                          credential-exfiltration primitive.
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  endpoint:
+                                    description: Endpoint is the S3 endpoint host[:port].
+                                    type: string
+                                  insecure:
+                                    description: Insecure switches the endpoint to
+                                      plain HTTP.
+                                    type: boolean
+                                  insecureSkipTLSVerify:
+                                    description: InsecureSkipTLSVerify disables TLS
+                                      certificate verification.
+                                    type: boolean
+                                  key:
+                                    type: string
+                                  region:
+                                    description: Region for AWS S3; optional for MinIO/Ceph.
+                                    type: string
+                                  sha256:
+                                    description: SHA256 of the decompressed qcow2.
+                                      Optional but recommended.
+                                    type: string
+                                  usePathStyle:
+                                    description: UsePathStyle forces path-style addressing.
+                                    type: boolean
+                                required:
+                                - bucket
+                                - endpoint
+                                - key
+                                type: object
+                              type:
+                                description: BootArtifactsSourceType enumerates supported
+                                  artifact transports.
+                                enum:
+                                - HTTPS
+                                - OCI
+                                - S3
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          volumeName:
+                            description: |-
+                              VolumeName is the libvirt volume name the staged image will register as
+                              inside Pool. Use the same value in LibvirtMachine.spec.rootDisk.baseImage.
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9_.:-]+$
+                            type: string
+                        required:
+                        - pool
+                        - source
+                        - volumeName
+                        type: object
+                      bootArtifacts:
+                        description: |-
+                          bootArtifacts, when set, switches first-boot ignition delivery from
+                          QEMU fw_cfg to libvirt direct-kernel-boot plus a virtio-blk ignition
+                          disk. The kernel's qemu_fw_cfg driver does O(n²) offset reads, which
+                          burns seconds of wall-clock time for multi-MB ignition payloads.
+                        properties:
+                          hostPath:
+                            description: |-
+                              HostPath is the directory on each libvirt host where kernel/initramfs are cached.
+                              Files land at <HostPath>/<sha256>/vmlinuz and <HostPath>/<sha256>/initramfs.img.
+                            pattern: ^/[A-Za-z0-9._/-]+$
+                            type: string
+                          kernelArgs:
+                            description: |-
+                              KernelArgs is the cmdline appended to the direct-boot kernel. The user is
+                              responsible for setting an ignition.config.url that reads from the virtio-blk
+                              ignition disk (serial=ignition), e.g.
+                                "ignition.platform.id=metal ignition.config.url=oem:/dev/disk/by-id/virtio-ignition console=ttyS0"
+                            minLength: 1
+                            type: string
+                          source:
+                            description: Source describes where to fetch the kernel
+                              and initramfs from.
+                            properties:
+                              https:
+                                description: HTTPSBootArtifactsSource fetches kernel+initramfs
+                                  over HTTPS.
+                                properties:
+                                  initramfsSHA256:
+                                    type: string
+                                  initramfsURL:
+                                    type: string
+                                  kernelSHA256:
+                                    type: string
+                                  kernelURL:
+                                    type: string
+                                required:
+                                - initramfsURL
+                                - kernelURL
+                                type: object
+                              oci:
+                                description: |-
+                                  OCIBootArtifactsSource fetches kernel+initramfs from a single OCI artifact.
+                                  The artifact is expected to be an `oras push`-style manifest whose layers
+                                  each carry an `org.opencontainers.image.title` annotation matching the file
+                                  name. KernelLayerTitle and InitramfsLayerTitle select the two layers; the
+                                  resolver fetches only those two blobs.
+                                properties:
+                                  credentialsSecretRef:
+                                    description: |-
+                                      CredentialsSecretRef references a Secret in the LibvirtCluster's
+                                      namespace containing registry credentials.
+                                      The Secret is read in two formats, in order of preference:
+                                        1. `.dockerconfigjson` (a kubernetes.io/dockerconfigjson Secret).
+                                        2. plain `username` / `password` keys.
+                                    properties:
+                                      name:
+                                        description: Name of the Secret.
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: |-
+                                          Namespace of the Secret. Deprecated: the Secret must live in the
+                                          LibvirtCluster's own namespace, so the only accepted values are "" and
+                                          that namespace. Naming any other namespace is rejected — the controller
+                                          reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                          endpoint the credential is sent to, so an unconfined reference here is a
+                                          credential-exfiltration primitive.
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  initramfsLayerTitle:
+                                    description: |-
+                                      InitramfsLayerTitle is the org.opencontainers.image.title annotation
+                                      that identifies the initramfs layer. Defaults to "initramfs.img".
+                                    type: string
+                                  initramfsSHA256:
+                                    type: string
+                                  insecureSkipTLSVerify:
+                                    description: |-
+                                      InsecureSkipTLSVerify disables TLS certificate verification on the
+                                      registry endpoint. Intended only for self-signed dev registries.
+                                    type: boolean
+                                  kernelLayerTitle:
+                                    description: |-
+                                      KernelLayerTitle is the org.opencontainers.image.title annotation that
+                                      identifies the kernel layer in the manifest. Defaults to "vmlinuz".
+                                    type: string
+                                  kernelSHA256:
+                                    type: string
+                                  plainHTTP:
+                                    description: |-
+                                      PlainHTTP allows non-TLS pulls from the registry. Intended only for
+                                      in-cluster mirrors and development. Defaults to false.
+                                    type: boolean
+                                  reference:
+                                    description: Reference is the full OCI reference,
+                                      e.g. "ghcr.io/example/boot:v1".
+                                    type: string
+                                required:
+                                - reference
+                                type: object
+                              s3:
+                                description: S3BootArtifactsSource fetches kernel+initramfs
+                                  from an S3-compatible store.
+                                properties:
+                                  bucket:
+                                    type: string
+                                  credentialsSecretRef:
+                                    description: |-
+                                      CredentialsSecretRef references a Secret in the LibvirtCluster's
+                                      namespace containing static credentials.
+                                      Recognized keys: `accessKeyID`, `secretAccessKey`, optional
+                                      `sessionToken`. If unset, the resolver attempts anonymous reads.
+                                    properties:
+                                      name:
+                                        description: Name of the Secret.
+                                        minLength: 1
+                                        type: string
+                                      namespace:
+                                        description: |-
+                                          Namespace of the Secret. Deprecated: the Secret must live in the
+                                          LibvirtCluster's own namespace, so the only accepted values are "" and
+                                          that namespace. Naming any other namespace is rejected — the controller
+                                          reads Secrets with cluster-wide RBAC and this spec also chooses the
+                                          endpoint the credential is sent to, so an unconfined reference here is a
+                                          credential-exfiltration primitive.
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  endpoint:
+                                    description: |-
+                                      Endpoint is the S3 endpoint host[:port], e.g. "s3.amazonaws.com" or
+                                      "minio.svc.cluster.local:9000".
+                                    type: string
+                                  initramfsKey:
+                                    type: string
+                                  initramfsSHA256:
+                                    type: string
+                                  insecure:
+                                    description: Insecure switches the endpoint to
+                                      plain HTTP. Defaults to false.
+                                    type: boolean
+                                  insecureSkipTLSVerify:
+                                    description: InsecureSkipTLSVerify disables TLS
+                                      certificate verification.
+                                    type: boolean
+                                  kernelKey:
+                                    type: string
+                                  kernelSHA256:
+                                    type: string
+                                  region:
+                                    description: |-
+                                      Region is the bucket's region. Optional for MinIO/Ceph; required by
+                                      AWS S3 (defaults to "us-east-1" if empty).
+                                    type: string
+                                  usePathStyle:
+                                    description: |-
+                                      UsePathStyle forces path-style addressing (bucket as URL path) rather
+                                      than virtual-hosted style. Required by MinIO and some Ceph setups.
+                                    type: boolean
+                                required:
+                                - bucket
+                                - endpoint
+                                - initramfsKey
+                                - kernelKey
+                                type: object
+                              type:
+                                description: BootArtifactsSourceType enumerates supported
+                                  artifact transports.
+                                enum:
+                                - HTTPS
+                                - OCI
+                                - S3
+                                type: string
+                            required:
+                            - type
+                            type: object
+                        required:
+                        - hostPath
+                        - kernelArgs
+                        - source
+                        type: object
+                      controlPlaneEndpoint:
+                        description: |-
+                          controlPlaneEndpoint represents the endpoint used to communicate with the
+                          control plane.
+
+                          Optional, because an unset endpoint is a legitimate state rather than an
+                          invalid object: the cluster simply reports Ready=false with reason
+                          WaitingForControlPlaneEndpoint until a host and a valid port appear. It
+                          also has to be omittable for LibvirtClusterTemplate, where baking one
+                          endpoint into a template would stamp the same address onto every cluster
+                          created from it.
+                        properties:
+                          host:
+                            description: The hostname on which the API server is serving.
+                            type: string
+                          port:
+                            description: The port on which the API server is serving.
+                            format: int32
+                            type: integer
+                        required:
+                        - host
+                        - port
+                        type: object
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

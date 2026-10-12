@@ -264,6 +264,10 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtMachineTemplate")
 			os.Exit(1)
 		}
+		if err := webhookv1alpha1.SetupLibvirtClusterTemplateWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtClusterTemplate")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

@@ -23,9 +23,17 @@ import (
 
 // LibvirtClusterSpec defines the desired state of LibvirtCluster.
 type LibvirtClusterSpec struct {
-	// controlPlaneEndpoint represents the endpoint used to communicate with the control plane.
-	// +required
-	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
+	// controlPlaneEndpoint represents the endpoint used to communicate with the
+	// control plane.
+	//
+	// Optional, because an unset endpoint is a legitimate state rather than an
+	// invalid object: the cluster simply reports Ready=false with reason
+	// WaitingForControlPlaneEndpoint until a host and a valid port appear. It
+	// also has to be omittable for LibvirtClusterTemplate, where baking one
+	// endpoint into a template would stamp the same address onto every cluster
+	// created from it.
+	// +optional
+	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
 
 	// bootArtifacts, when set, switches first-boot ignition delivery from
 	// QEMU fw_cfg to libvirt direct-kernel-boot plus a virtio-blk ignition
