@@ -118,7 +118,10 @@ func main() {
 	pflag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-	setupLog.Info("Starting CAPLV", "version", version.Version, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
+	setupLog.Info("Starting CAPLV",
+		"version", version.Version,
+		"gitCommit", version.GitCommit,
+		"buildDate", version.BuildDate)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

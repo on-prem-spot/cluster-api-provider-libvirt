@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"errors"
+	"testing"
+
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -30,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"testing"
 )
 
 func TestClusterReadiness(t *testing.T) {

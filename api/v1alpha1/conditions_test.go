@@ -17,10 +17,11 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"testing"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	conditions "sigs.k8s.io/cluster-api/util/conditions/v1beta2"
-	"testing"
 )
 
 func TestCAPIConditions(t *testing.T) {
