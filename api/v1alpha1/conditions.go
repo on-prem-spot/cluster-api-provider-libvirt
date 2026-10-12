@@ -16,6 +16,8 @@ limitations under the License.
 
 package v1alpha1
 
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 const (
 	// LibvirtHost conditions
 	HostReachableCondition = "Reachable"
@@ -85,3 +87,33 @@ const (
 	ManagedNodeLabelsAnnotation      = "infrastructure.cluster.x-k8s.io/libvirt-managed-labels"
 	ManagedNodeAnnotationsAnnotation = "infrastructure.cluster.x-k8s.io/libvirt-managed-annotations"
 )
+
+// GetV1Beta2Conditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtCluster) GetV1Beta2Conditions() []metav1.Condition {
+	return o.Status.Conditions
+}
+
+// SetV1Beta2Conditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtCluster) SetV1Beta2Conditions(conditions []metav1.Condition) {
+	o.Status.Conditions = conditions
+}
+
+// GetV1Beta2Conditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtMachine) GetV1Beta2Conditions() []metav1.Condition {
+	return o.Status.Conditions
+}
+
+// SetV1Beta2Conditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtMachine) SetV1Beta2Conditions(conditions []metav1.Condition) {
+	o.Status.Conditions = conditions
+}
+
+// GetV1Beta2Conditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtHost) GetV1Beta2Conditions() []metav1.Condition {
+	return o.Status.Conditions
+}
+
+// SetV1Beta2Conditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtHost) SetV1Beta2Conditions(conditions []metav1.Condition) {
+	o.Status.Conditions = conditions
+}

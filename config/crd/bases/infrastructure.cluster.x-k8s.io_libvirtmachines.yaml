@@ -8,9 +8,13 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: LibvirtMachine
     listKind: LibvirtMachineList
     plural: libvirtmachines
+    shortNames:
+    - libvirtm
     singular: libvirtmachine
   scope: Namespaced
   versions:
