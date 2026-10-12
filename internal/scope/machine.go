@@ -26,7 +26,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
 // MachineScopeParams groups the parameters required to create a MachineScope.

@@ -25,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
 func sha256Hex(b []byte) string {

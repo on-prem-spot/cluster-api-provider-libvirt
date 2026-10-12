@@ -30,8 +30,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
-	"github.com/atgreen/caplv/internal/libvirt"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/libvirt"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {

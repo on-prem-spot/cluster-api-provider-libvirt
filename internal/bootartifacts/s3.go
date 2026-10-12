@@ -28,7 +28,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
 // S3Resolver pulls kernel+initramfs from an S3-compatible object store via

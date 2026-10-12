@@ -28,7 +28,7 @@ import (
 
 	certificatesv1 "k8s.io/api/certificates/v1"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
 const testNodeName = "default-spot-worker01"
