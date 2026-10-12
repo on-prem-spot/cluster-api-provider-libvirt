@@ -1,0 +1,5 @@
+{
+  "image": "controller:latest",
+  "live_reload_deps": ["cmd", "internal", "api"],
+  "label": "CAPLV"
+}
