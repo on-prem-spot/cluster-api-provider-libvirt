@@ -21,10 +21,12 @@ import (
 	"errors"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,13 +44,16 @@ import (
 // LibvirtClusterReconciler reconciles a LibvirtCluster object.
 type LibvirtClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile marks infrastructure ready once its externally managed endpoint is configured.
 func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
@@ -116,8 +121,22 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		condition.Reason = infrav1.ReasonClusterReady
 		condition.Message = fmt.Sprintf("Control plane endpoint %s:%d is configured", endpoint.Host, endpoint.Port)
 	}
+	// Copy, not alias: SetStatusCondition overwrites the element
+	// FindStatusCondition points at, so a retained pointer would always
+	// compare equal and suppress every event.
+	var prevStatus metav1.ConditionStatus
+	if previous := apimeta.FindStatusCondition(libvirtCluster.Status.Conditions, "Ready"); previous != nil {
+		prevStatus = previous.Status
+	}
 	libvirtCluster.Status.Ready = ready
 	apimeta.SetStatusCondition(&libvirtCluster.Status.Conditions, condition)
+	if prevStatus != condition.Status {
+		eventType := corev1.EventTypeNormal
+		if !ready {
+			eventType = corev1.EventTypeWarning
+		}
+		recordEvent(r.Recorder, libvirtCluster, eventType, condition.Reason, condition.Message)
+	}
 	return ctrl.Result{}, nil
 }
 

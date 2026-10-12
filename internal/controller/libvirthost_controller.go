@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,6 +64,7 @@ type LibvirtHostReconciler struct {
 	Scheme               *runtime.Scheme
 	SSHClientFactory     SSHClientFactory
 	LibvirtClientFactory LibvirtClientFactory
+	Recorder             record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch;create;update;patch;delete
@@ -136,14 +138,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 
 	// secretRef is required.
 	if host.Spec.SecretRef == nil {
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            "spec.secretRef is required for SSH connectivity",
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "spec.secretRef is required for SSH connectivity")
 		return
 	}
 
@@ -152,28 +147,14 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 	secretNS, err := resolveSecretNamespace(host.Spec.SecretRef.Namespace, host.Namespace, "spec.secretRef.namespace")
 	if err != nil {
 		log.Error(err, "Rejected Secret reference")
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, err.Error())
 		return
 	}
 	secret := &corev1.Secret{}
 	secretKey := types.NamespacedName{Namespace: secretNS, Name: host.Spec.SecretRef.Name}
 	if err := r.Get(ctx, secretKey, secret); err != nil {
 		log.Error(err, "Failed to get SSH secret", "secret", secretKey)
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            "Failed to get SSH secret: " + err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "Failed to get SSH secret: "+err.Error())
 		return
 	}
 
@@ -181,14 +162,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 	sshClient, err := r.SSHClientFactory(ctx, host, secret)
 	if err != nil {
 		log.Error(err, "Failed to create SSH client")
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            "SSH connection failed: " + err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "SSH connection failed: "+err.Error())
 		return
 	}
 	if sshClient != nil {
@@ -199,14 +173,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 	connURI, err := libvirt.LocalConnectionURI(host.Spec.URI)
 	if err != nil {
 		log.Error(err, "Invalid libvirt connection URI")
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            "Invalid libvirt connection URI: " + err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "Invalid libvirt connection URI: "+err.Error())
 		return
 	}
 	libvirtClient := r.LibvirtClientFactory(sshClient, connURI)
@@ -214,14 +181,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 
 	if err := libvirtClient.Ping(ctx); err != nil {
 		log.Error(err, "Libvirt connectivity check failed")
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            "Libvirt connectivity check failed: " + err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "Libvirt connectivity check failed: "+err.Error())
 		return
 	}
 
@@ -231,14 +191,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 	// at first machine provision.
 	if err := libvirtClient.VerifyHypervisor(ctx); err != nil {
 		log.Error(err, "Hypervisor capability check failed")
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonHypervisorUnavailable,
-			Message:            "Libvirt is reachable but the QEMU/KVM hypervisor is unavailable (is qemu-kvm / libvirt-daemon-driver-qemu installed and KVM enabled?): " + err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonHypervisorUnavailable, "Libvirt is reachable but the QEMU/KVM hypervisor is unavailable (is qemu-kvm / libvirt-daemon-driver-qemu installed and KVM enabled?): "+err.Error())
 		return
 	}
 
@@ -250,14 +203,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 	if connURI == libvirt.ConnURISession {
 		if err := libvirtClient.VerifySessionPrerequisites(ctx); err != nil {
 			log.Error(err, "Session-mode prerequisites check failed")
-			host.Status.Ready = false
-			apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-				Type:               infrav1.HostReachableCondition,
-				Status:             metav1.ConditionFalse,
-				Reason:             infrav1.ReasonSessionModeMisconfigured,
-				Message:            "Host is not set up for session-mode libvirt (run setup-host.yaml with libvirt_mode=session): " + err.Error(),
-				ObservedGeneration: host.Generation,
-			})
+			r.markUnreachable(host, infrav1.ReasonSessionModeMisconfigured, "Host is not set up for session-mode libvirt (run setup-host.yaml with libvirt_mode=session): "+err.Error())
 			return
 		}
 	}
@@ -266,14 +212,7 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 	nodeInfo, err := libvirtClient.GetNodeInfo(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get node info")
-		host.Status.Ready = false
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               infrav1.HostReachableCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             infrav1.ReasonConnectionFailed,
-			Message:            "Failed to get host capacity: " + err.Error(),
-			ObservedGeneration: host.Generation,
-		})
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "Failed to get host capacity: "+err.Error())
 		return
 	}
 
@@ -303,14 +242,55 @@ func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *in
 
 	// SSH + libvirt verified, capacity discovered.
 	log.Info("Host health check passed", "totalVCPUs", nodeInfo.CPUs, "availableVCPUs", availVCPUs, "availableMemoryMB", availMemoryMB)
+	r.markReachable(host, fmt.Sprintf("SSH and libvirt verified; %d vCPUs / %d MB available", availVCPUs, availMemoryMB))
+}
+
+// markUnreachable records a failed health check on the host.
+func (r *LibvirtHostReconciler) markUnreachable(host *infrav1.LibvirtHost, reason, message string) {
+	host.Status.Ready = false
+	r.setReachable(host, metav1.ConditionFalse, reason, message)
+}
+
+// markReachable records a passed health check on the host.
+func (r *LibvirtHostReconciler) markReachable(host *infrav1.LibvirtHost, message string) {
 	host.Status.Ready = true
+	r.setReachable(host, metav1.ConditionTrue, infrav1.ReasonConnectionSucceeded, message)
+}
+
+// setReachable updates the Reachable condition and emits an event, but only
+// when the status or reason actually changes. Hosts are health-checked on a
+// timer for as long as machines reference them, so emitting unconditionally
+// would produce an event per reconcile for a host that is simply still down.
+func (r *LibvirtHostReconciler) setReachable(
+	host *infrav1.LibvirtHost,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+) {
+	// Copy the previous status and reason rather than holding the pointer
+	// FindStatusCondition returns: it aliases the slice element that
+	// SetStatusCondition is about to overwrite in place, so comparing through
+	// it afterwards would always report no change and never emit.
+	var prevStatus metav1.ConditionStatus
+	var prevReason string
+	if previous := apimeta.FindStatusCondition(host.Status.Conditions, infrav1.HostReachableCondition); previous != nil {
+		prevStatus, prevReason = previous.Status, previous.Reason
+	}
 	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
 		Type:               infrav1.HostReachableCondition,
-		Status:             metav1.ConditionTrue,
-		Reason:             infrav1.ReasonConnectionSucceeded,
-		Message:            fmt.Sprintf("SSH and libvirt verified; %d vCPUs / %d MB available", availVCPUs, availMemoryMB),
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
 		ObservedGeneration: host.Generation,
 	})
+	if prevStatus == status && prevReason == reason {
+		return
+	}
+	eventType := corev1.EventTypeWarning
+	if status == metav1.ConditionTrue {
+		eventType = corev1.EventTypeNormal
+	}
+	recordEvent(r.Recorder, host, eventType, reason, message)
 }
 
 // hasReferencingMachines returns true if any LibvirtMachine in the same

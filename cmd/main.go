@@ -206,13 +206,15 @@ func main() {
 		Scheme:               mgr.GetScheme(),
 		SSHClientFactory:     sshClientFactory,
 		LibvirtClientFactory: libvirtClientFactory,
+		Recorder:             mgr.GetEventRecorderFor("libvirthost-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtHost")
 		os.Exit(1)
 	}
 	if err := (&controller.LibvirtClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("libvirtcluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtCluster")
 		os.Exit(1)
@@ -240,6 +242,7 @@ func main() {
 		BootArtifactsResolver:   bootArtifactsResolver,
 		BaseImageCache:          baseImageCache,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
+		Recorder:                mgr.GetEventRecorderFor("libvirtmachine-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtMachine")
 		os.Exit(1)
