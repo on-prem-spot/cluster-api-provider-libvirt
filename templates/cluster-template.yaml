@@ -1,12 +1,13 @@
 # CAPLV cluster template — consumed by `clusterctl generate cluster`.
 #
-# Unlike most CAPI infrastructure providers, CAPLV does not ship a
-# LibvirtMachineTemplate type. Each VM is configured explicitly with a
-# hostRef and a static IP, and the webhook enforces one VM per host. This
-# template therefore wires up an example control-plane Machine+LibvirtMachine
-# pair as a worked example — duplicate the LibvirtHost / Machine /
-# LibvirtMachine blocks (renaming .metadata.name and updating hostRef + IP +
-# bootstrap data) for each additional node.
+# CAPLV does ship LibvirtMachineTemplate and LibvirtClusterTemplate, but this
+# flavor does not use them: each VM is configured explicitly with a hostRef
+# and a static IP, and the webhook enforces one VM per host, so a template
+# cannot yet stamp more than one machine. This template therefore wires up an
+# example control-plane Machine+LibvirtMachine pair as a worked example —
+# duplicate the LibvirtHost / Machine / LibvirtMachine blocks (renaming
+# .metadata.name and updating hostRef + IP + bootstrap data) for each
+# additional node.
 #
 # Two resources this template intentionally does NOT generate, because they
 # carry secret material the user must manage:

@@ -112,7 +112,7 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	ready := endpoint.Host != "" && endpoint.Port > 0 && endpoint.Port <= 65535
 	condition := metav1.Condition{
 		Type: "Ready", Status: metav1.ConditionFalse,
-		Reason:             "WaitingForControlPlaneEndpoint",
+		Reason:             infrav1.ReasonWaitingForControlPlaneEndpoint,
 		Message:            "Configure a control plane endpoint host and port",
 		ObservedGeneration: libvirtCluster.Generation,
 	}
