@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "caplv",
+  "project_id": "88e64bcb-65fd-41d9-8789-d22d93ae037f"
+}
