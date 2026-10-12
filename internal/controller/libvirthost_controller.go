@@ -29,13 +29,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
 	"github.com/atgreen/caplv/internal/libvirt"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
 const (
@@ -82,6 +85,10 @@ func (r *LibvirtHostReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	if _, externallyManaged := host.Annotations[clusterv1.ManagedByAnnotation]; externallyManaged {
+		return ctrl.Result{}, nil
 	}
 
 	// Create patch helper for deferred status patch.
@@ -331,7 +338,7 @@ func healthCheckIntervalForHost(host *infrav1.LibvirtHost) time.Duration {
 // SetupWithManager sets up the controller with the Manager.
 func (r *LibvirtHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtHost{}).
+		For(&infrav1.LibvirtHost{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
 		// Re-reconcile the host when a LibvirtMachine referencing it is created or deleted.
 		// This starts/stops health check monitoring based on active machines.
 		Watches(&infrav1.LibvirtMachine{}, handler.EnqueueRequestsFromMapFunc(
