@@ -73,8 +73,8 @@ spec:
     namespace: default
 ```
 
-**3. Create a LibvirtCluster resource** (CAPLV verifies the endpoint is
-reachable before reporting ready):
+**3. Create a LibvirtCluster resource** (CAPLV reports ready once the endpoint
+host and port are configured):
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -223,7 +223,7 @@ image for an OCP 4.21 cluster). Download from
 | CRD | Purpose |
 |-----|---------|
 | **LibvirtHost** | Reusable connection details for a libvirt hypervisor (URI, SSH key, OVMF paths, reserved resources). Discovers host capacity via `virsh nodeinfo`. Health-checked only while machines are active. |
-| **LibvirtCluster** | CAPI contract resource — verifies the control plane endpoint is reachable (TCP dial) before reporting ready. No infrastructure provisioned. |
+| **LibvirtCluster** | CAPI contract resource — reports ready when the control plane endpoint is configured. No infrastructure provisioned. |
 | **LibvirtMachine** | Core resource — a single KVM VM with static IP, UEFI firmware, and ignition or cloud-init bootstrap. VM size can be auto-derived from host capacity. One per host (webhook-enforced). |
 
 ## Example
@@ -745,6 +745,9 @@ Node objects in the cluster.
 
 ## Key Design Decisions
 
+Rationale and trade-offs are recorded in [host management](docs/adr/0001-host-management.md)
+and [readiness and bootstrap](docs/adr/0002-readiness-and-bootstrap.md).
+
 - **virsh-over-SSH** — pure Go binary (`CGO_ENABLED=0`), distroless container.
   No `libvirt-dev`, no CGo. The `Client` interface allows swapping to native
   libvirt bindings later.
@@ -755,11 +758,10 @@ Node objects in the cluster.
   varying specs just work.
 - **Static IPs required** — every VM must declare its network identity upfront.
   No DHCP. This matches 5-Spot's model of predetermined machine configurations.
-- **Control plane health gate** — LibvirtCluster verifies the worker-facing
-  API endpoint is reachable (TCP dial, 60s recheck) before allowing machine
-  provisioning. Since CAPLV runs on the same cluster, this catches the case
-  where the internal API works but the external endpoint (that workers use
-  to join) is down.
+- **Infrastructure readiness** — LibvirtCluster is ready when its externally
+  managed control plane endpoint has a host and valid port. API server health
+  is separate from infrastructure readiness; reconciliation responds to object
+  changes instead of polling the endpoint.
 - **Parallel at scale** — 50 concurrent reconcilers by default. Each host runs
   one VM, so there are no contention issues across parallel provisions.
 - **Ephemeral storage** — `ephemeralPool: true` creates a per-machine tmpfs
@@ -899,7 +901,7 @@ affect CAPLV's ability to operate.
 | Scenario | What happens | Recovery |
 |----------|-------------|----------|
 | **OpenShift API fully down** | CAPLV cannot reconcile at all — it runs on this cluster. No new machines are created. Already-running VMs continue to serve workloads but cannot be managed (no drain, no deletion). | API recovers, CAPLV resumes reconciliation automatically. |
-| **API reachable internally but not from worker endpoint** | CAPLV can reconcile, but the LibvirtCluster TCP dial against the external endpoint fails. Status goes `ready=false` with condition `ControlPlaneUnreachable`. CAPI blocks new machine creation. Already-running VMs are unaffected. | External endpoint restored, LibvirtCluster rechecks every 60s. |
+| **API reachable internally but not from worker endpoint** | Infrastructure stays ready and CAPLV can provision VMs, but new nodes cannot join until they can reach the endpoint. Already-running VMs may lose their API connection. | Restore endpoint reachability; node bootstrap and kubelet reconnect independently of infrastructure readiness. |
 | **Cluster under resource pressure** | CAPLV pods may be evicted or throttled. Reconciliation slows. If 5-Spot activates a large schedule during a stressed period, hundreds of concurrent reconciles add API server and etcd load. | CAPLV pods restart via Deployment. Consider PodDisruptionBudget and resource requests to keep CAPLV running during pressure. |
 | **etcd degradation** | Status patches and Machine updates slow down. All concurrent reconciles compete for etcd bandwidth. | etcd recovers, backlogged reconciles drain. |
 | **CAPLV CSR approver not running** | VMs boot and request CSRs, but certificates are never approved. Nodes stay `NotReady`. CAPLV includes a built-in CSR approver that auto-approves CSRs from nodes matching a CAPI Machine backed by a LibvirtMachine. | Restart the CAPLV controller. Pending CSRs are approved and nodes join. |
@@ -935,6 +937,27 @@ leave orphaned `Node` objects and `Terminating` pods in OpenShift.
 - libvirt hosts reachable over SSH from the cluster network
 - RHCOS qcow2 base images pre-staged in libvirt storage pools on each host
 - OVMF firmware packages installed on libvirt hosts (for UEFI boot)
+
+## Compatibility
+
+The following describes the current development tree. Dependency versions are
+not a tested support range; release tags must be checked independently.
+
+| CAPLV revision | Cluster API | Kubernetes | libvirt / QEMU |
+| --- | --- | --- | --- |
+| Development (`main`) | Built against CAPI v1.9.11; imports the v1beta1 API and transitional metav1 condition utilities | Kubernetes Go libraries v0.35.0; `make test` selects envtest 1.35 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
+
+`metadata.yaml` advertises the v1beta2 contract for the 0.1 and 0.2 release
+series. That declaration alone does not establish full contract compliance or
+ClusterClass support. Machine templates, host/IP allocation for scaling, and
+end-to-end lifecycle coverage remain open work. This tree's versions must not
+be read as verified compatibility for previously released binaries.
+
+Hosts need QEMU/KVM and libvirt tooling with the commands used by CAPLV, working
+storage pools, and OVMF for UEFI guests. Session mode additionally needs the
+bridge helper and user-session setup described above. Test the exact host
+configuration and guest OS before rollout; no complete Kubernetes guest-version
+or libvirt-version matrix has been established yet.
 
 ## Development
 

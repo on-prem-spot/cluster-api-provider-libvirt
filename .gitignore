@@ -29,3 +29,12 @@ go.work
 # Kubeconfig might contain secrets
 *.kubeconfig
 .claude/worktrees/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+
+# Generated release manifests (make build-installer)
+dist/
