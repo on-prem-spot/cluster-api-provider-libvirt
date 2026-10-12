@@ -5,6 +5,7 @@ resources:
 - bases/infrastructure.cluster.x-k8s.io_libvirthosts.yaml
 - bases/infrastructure.cluster.x-k8s.io_libvirtclusters.yaml
 - bases/infrastructure.cluster.x-k8s.io_libvirtmachines.yaml
+- bases/infrastructure.cluster.x-k8s.io_libvirtmachinetemplates.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 # CAPI contract version labels — declare which provider API version implements

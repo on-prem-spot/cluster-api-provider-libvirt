@@ -1,0 +1,376 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: libvirtmachinetemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: LibvirtMachineTemplate
+    listKind: LibvirtMachineTemplateList
+    plural: libvirtmachinetemplates
+    shortNames:
+    - libvirtmt
+    singular: libvirtmachinetemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.template.spec.domain.vcpus
+      name: vCPUs
+      type: integer
+    - jsonPath: .spec.template.spec.domain.memoryMB
+      name: MemoryMB
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          LibvirtMachineTemplate is the Schema for the libvirtmachinetemplates API.
+
+          MachineDeployment and KubeadmControlPlane reference a template through
+          spec.infrastructureRef and stamp a LibvirtMachine per replica from it. The
+          type exists so those higher-order resources can be used at all.
+
+          One caveat, because CAPLV's machine model is not replica-shaped: a
+          LibvirtMachine names its host through the required spec.hostRef and declares
+          a static network identity, and a host runs exactly one VM. Every machine
+          stamped from one template therefore carries the same host and the same
+          address, so a replica count above one produces machines that collide rather
+          than scale. Scaling needs per-machine host and address allocation, which
+          CAPLV does not do yet. The validating webhook warns about this on create.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of LibvirtMachineTemplate.
+            properties:
+              template:
+                description: template is the machine template.
+                properties:
+                  metadata:
+                    description: |-
+                      metadata is the object metadata applied to the LibvirtMachines created
+                      from this template. Only labels and annotations are propagated.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  spec:
+                    description: spec is the LibvirtMachine spec stamped onto each
+                      created machine.
+                    properties:
+                      additionalDisks:
+                        description: additionalDisks is an optional list of additional
+                          data disks to attach.
+                        items:
+                          description: AdditionalDiskSpec defines an additional data
+                            disk.
+                          properties:
+                            bus:
+                              default: virtio
+                              description: bus is the disk bus type.
+                              type: string
+                            name:
+                              description: name is a unique identifier for this disk
+                                within the machine.
+                              minLength: 1
+                              pattern: ^[A-Za-z0-9_.:-]+$
+                              type: string
+                            size:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: size is the desired size of the disk.
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            storagePool:
+                              description: storagePool is the name of the libvirt
+                                storage pool to use.
+                              minLength: 1
+                              pattern: ^[A-Za-z0-9_.:-]+$
+                              type: string
+                          required:
+                          - name
+                          - size
+                          - storagePool
+                          type: object
+                        type: array
+                      bootstrapFormat:
+                        default: ignition
+                        description: bootstrapFormat specifies the format of bootstrap
+                          data to generate.
+                        enum:
+                        - ignition
+                        - cloud-init
+                        type: string
+                      domain:
+                        description: domain defines the virtual machine domain configuration.
+                        properties:
+                          firmware:
+                            default: uefi
+                            description: firmware is the firmware type for the virtual
+                              machine.
+                            enum:
+                            - uefi
+                            - bios
+                            type: string
+                          machine:
+                            default: q35
+                            description: machine is the QEMU machine type.
+                            type: string
+                          memoryMB:
+                            description: |-
+                              memoryMB is the amount of memory in megabytes to allocate.
+                              If zero or omitted, auto-sized from the LibvirtHost's available
+                              capacity (total memory minus reserved).
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          vcpus:
+                            description: |-
+                              vcpus is the number of virtual CPUs to allocate.
+                              If zero or omitted, auto-sized from the LibvirtHost's available
+                              capacity (total vCPUs minus reserved).
+                            format: int32
+                            minimum: 0
+                            type: integer
+                        type: object
+                      hostRef:
+                        description: hostRef is a reference to a LibvirtHost resource
+                          in the same namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      network:
+                        description: network defines the network configuration for
+                          the virtual machine.
+                        properties:
+                          addresses:
+                            description: addresses is a list of static IP addresses
+                              in CIDR notation (e.g. 192.168.1.10/24).
+                            items:
+                              type: string
+                            minItems: 1
+                            type: array
+                          dns:
+                            description: dns defines DNS configuration for the network.
+                            properties:
+                              nameservers:
+                                description: nameservers is a list of DNS server addresses.
+                                items:
+                                  type: string
+                                type: array
+                              searchDomains:
+                                description: searchDomains is a list of DNS search
+                                  domains.
+                                items:
+                                  type: string
+                                type: array
+                            type: object
+                          gateway:
+                            description: gateway is the default gateway address.
+                            type: string
+                          macAddress:
+                            description: macAddress is an optional MAC address to
+                              assign to the interface.
+                            type: string
+                          model:
+                            default: virtio
+                            description: model is the NIC model.
+                            type: string
+                          name:
+                            description: name is the name of the libvirt network or
+                              bridge device.
+                            minLength: 1
+                            type: string
+                          type:
+                            description: type is the type of libvirt network attachment.
+                            enum:
+                            - bridge
+                            - network
+                            type: string
+                        required:
+                        - addresses
+                        - name
+                        - type
+                        type: object
+                      nodeAnnotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          nodeAnnotations are annotations to apply to the Kubernetes Node once
+                          kubelet registers it with the cluster. Same ownership and removal
+                          semantics as nodeLabels.
+                        type: object
+                      nodeLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          nodeLabels are labels to apply to the Kubernetes Node once kubelet
+                          registers it with the cluster. Unlike CAPI's Machine.spec.nodeLabels
+                          (which enforces a prefix allow-list to avoid bypassing NodeRestriction),
+                          CAPLV patches the Node directly from the controller's own identity, so
+                          arbitrary keys (e.g. "dynatrace", "aqua", "k8s.ovn.org/egress-assignable")
+                          are accepted. Keys removed from this map on a later update are removed
+                          from the Node; admin-applied labels that CAPLV never set are left
+                          untouched.
+                        type: object
+                      providerID:
+                        description: |-
+                          providerID is the identifier used by CAPI to reference this machine.
+                          Set by the controller after the domain is created.
+                        type: string
+                      rootDisk:
+                        description: rootDisk defines the root disk configuration.
+                        properties:
+                          baseImage:
+                            description: baseImage is the name of the base image volume
+                              to clone from.
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9_.:-]+$
+                            type: string
+                          baseImagePool:
+                            description: |-
+                              baseImagePool is the storage pool containing the base image.
+                              If unset, defaults to storagePool. This allows the base image to
+                              live on persistent storage while ephemeral VM disks use a different
+                              pool (e.g., tmpfs-backed for ephemeral workers).
+                            pattern: ^[A-Za-z0-9_.:-]+$
+                            type: string
+                          bus:
+                            default: virtio
+                            description: bus is the disk bus type.
+                            type: string
+                          cloneStrategy:
+                            default: copy-on-write
+                            description: cloneStrategy defines how the root disk is
+                              cloned from the base image.
+                            enum:
+                            - copy-on-write
+                            - full-clone
+                            type: string
+                          ephemeralPool:
+                            description: |-
+                              ephemeralPool, when true, causes CAPLV to create a per-machine
+                              tmpfs-backed pool named <namespace>-<cluster>-<machine>-pool
+                              (surfaced in status.artifacts.ephemeralPoolName) at provisioning
+                              time and destroy it, including the tmpfs mount, at deletion time.
+                              The root disk and any bootstrap ISO are placed in this generated
+                              pool instead of storagePool. This ensures the host's persistent
+                              storage is never touched and RAM is only consumed while the VM
+                              exists. Set baseImagePool to the persistent pool holding the base
+                              image.
+                            type: boolean
+                          ephemeralPoolSize:
+                            description: |-
+                              ephemeralPoolSize caps the RAM the ephemeral tmpfs mount may consume.
+                              Accepts tmpfs `size=` syntax: a percentage of physical RAM (e.g. "80%")
+                              or an absolute size (e.g. "16G"). When unset, the kernel default (50%
+                              of physical RAM) applies. Only meaningful when ephemeralPool is true.
+                            pattern: ^([1-9][0-9]?|100)%$|^[1-9][0-9]*[KMGTkmgt]?$
+                            type: string
+                          size:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: size is the desired size of the root disk.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          storagePool:
+                            description: |-
+                              storagePool is the name of the pre-existing libvirt storage pool
+                              that receives the root disk volume (and the NoCloud ISO for
+                              cloud-init guests). Not used as the disk target when ephemeralPool
+                              is true — CAPLV then provisions its own per-machine tmpfs pool
+                              instead — though baseImagePool still defaults to this value when
+                              unset.
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9_.:-]+$
+                            type: string
+                        required:
+                        - baseImage
+                        - size
+                        - storagePool
+                        type: object
+                    required:
+                    - bootstrapFormat
+                    - domain
+                    - hostRef
+                    - network
+                    - rootDisk
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+          status:
+            description: status defines the observed state of LibvirtMachineTemplate.
+            properties:
+              capacity:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  capacity is the resource capacity of a machine created from this
+                  template, in the form the cluster autoscaler reads (cpu, memory).
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
