@@ -19,7 +19,10 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+
 	"os"
+
+	"github.com/spf13/pflag"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -45,6 +48,7 @@ import (
 	"github.com/atgreen/caplv/internal/libvirt"
 	libvirtssh "github.com/atgreen/caplv/internal/ssh"
 	webhookv1alpha1 "github.com/atgreen/caplv/internal/webhook/v1alpha1"
+	"github.com/atgreen/caplv/version"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -107,12 +111,14 @@ func main() {
 			"(plain http:// URLs, oci.plainHTTP, s3.insecure, or any insecureSkipTLSVerify). "+
 			"Off by default: those bytes become the root disk of every worker VM.")
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
+	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	pflag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	setupLog.Info("Starting CAPLV", "version", version.Version, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
