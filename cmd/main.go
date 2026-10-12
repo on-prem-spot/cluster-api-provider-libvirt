@@ -40,15 +40,15 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	infrastructurev1alpha1 "github.com/atgreen/caplv/api/v1alpha1"
-	"github.com/atgreen/caplv/internal/bootartifacts"
-	"github.com/atgreen/caplv/internal/controller"
-	"github.com/atgreen/caplv/internal/imagecache"
-	"github.com/atgreen/caplv/internal/iso"
-	"github.com/atgreen/caplv/internal/libvirt"
-	libvirtssh "github.com/atgreen/caplv/internal/ssh"
-	webhookv1alpha1 "github.com/atgreen/caplv/internal/webhook/v1alpha1"
-	"github.com/atgreen/caplv/version"
+	infrastructurev1alpha1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/bootartifacts"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/controller"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/imagecache"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/iso"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/libvirt"
+	libvirtssh "github.com/on-prem-spot/cluster-api-provider-libvirt/internal/ssh"
+	webhookv1alpha1 "github.com/on-prem-spot/cluster-api-provider-libvirt/internal/webhook/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/version"
 	// +kubebuilder:scaffold:imports
 )
 

@@ -1,4 +1,4 @@
-module github.com/atgreen/caplv
+module github.com/on-prem-spot/cluster-api-provider-libvirt
 
 go 1.26.9
 

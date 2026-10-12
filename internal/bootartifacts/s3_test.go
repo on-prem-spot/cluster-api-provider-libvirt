@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
 // fakeS3 serves path-style GET requests for two known keys, optionally

@@ -4,7 +4,7 @@ IMG ?= controller:latest
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo devel)
 GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-VERSION_PACKAGE = github.com/atgreen/caplv/version
+VERSION_PACKAGE = github.com/on-prem-spot/cluster-api-provider-libvirt/version
 VERSION_LDFLAGS = -X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).GitCommit=$(GIT_COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)

@@ -25,9 +25,9 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
-	"github.com/atgreen/caplv/internal/libvirt"
-	"github.com/atgreen/caplv/internal/scope"
+	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/libvirt"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/scope"
 )
 
 // rootDiskRC builds a reconcileCtx for an ephemeral-pool machine whose root

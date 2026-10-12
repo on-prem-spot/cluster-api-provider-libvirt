@@ -7,7 +7,7 @@ domain: cluster.x-k8s.io
 layout:
 - go.kubebuilder.io/v4
 projectName: caplv
-repo: github.com/green/caplv
+repo: github.com/on-prem-spot/cluster-api-provider-libvirt
 resources:
 - api:
     crdVersion: v1
@@ -16,7 +16,7 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: LibvirtHost
-  path: github.com/green/caplv/api/v1alpha1
+  path: github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -25,7 +25,7 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: LibvirtCluster
-  path: github.com/green/caplv/api/v1alpha1
+  path: github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -34,7 +34,7 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: LibvirtMachine
-  path: github.com/green/caplv/api/v1alpha1
+  path: github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1
   version: v1alpha1
   webhooks:
     validation: true

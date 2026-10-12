@@ -30,7 +30,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/atgreen/caplv/test/utils"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/test/utils"
 )
 
 // namespace where the project is deployed in
