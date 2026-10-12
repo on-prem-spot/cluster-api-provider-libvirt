@@ -39,7 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -76,7 +76,7 @@ const defaultMaxConcurrentReconciles = 50
 type LibvirtMachineReconciler struct {
 	client.Client
 	Scheme               *runtime.Scheme
-	Recorder             record.EventRecorder
+	Recorder             events.EventRecorder
 	SSHClientFactory     SSHClientFactory
 	LibvirtClientFactory LibvirtClientFactory
 	ISOBuilder           iso.Builder
@@ -870,7 +870,7 @@ func (r *LibvirtMachineReconciler) reconcileBaseImage(ctx context.Context, rc *r
 	if err := rc.libvirtClient.UploadQcow2Volume(ctx, bi.Pool, bi.VolumeName, f, virtualSize); err != nil {
 		return r.handleLibvirtError(rc.libvirtMachine, err, "uploading base image")
 	}
-	recordEventf(r.Recorder, rc.libvirtMachine, corev1.EventTypeNormal, EventBaseImageUploaded,
+	recordEvent(r.Recorder, rc.libvirtMachine, corev1.EventTypeNormal, EventBaseImageUploaded, ActionProvision,
 		"Staged base image in pool %q as %q on host %q", bi.Pool, bi.VolumeName, rc.libvirtHost.Name)
 
 	apimeta.SetStatusCondition(&rc.libvirtMachine.Status.Conditions, metav1.Condition{
@@ -1015,7 +1015,7 @@ func (r *LibvirtMachineReconciler) reconcileRootDisk(ctx context.Context, rc *re
 				return r.handleLibvirtError(libvirtMachine, err, "creating ephemeral pool")
 			}
 			log.Info("Created ephemeral tmpfs pool", "pool", ephPoolName)
-			recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventEphemeralPoolCreate,
+			recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventEphemeralPoolCreate, ActionProvision,
 				"Created ephemeral tmpfs pool %q (size %s)", ephPoolName, ephPoolSize)
 		}
 		// Override storagePool to use the ephemeral pool for all VM artifacts.
@@ -1062,7 +1062,7 @@ func (r *LibvirtMachineReconciler) reconcileRootDisk(ctx context.Context, rc *re
 			}
 		}
 		log.Info("Created root disk volume", "volume", rc.rootDiskVolume, "duration", time.Since(diskStart).String())
-		recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeCreated,
+		recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeCreated, ActionProvision,
 			"Created root disk volume %q in pool %q", rc.rootDiskVolume, rc.storagePool)
 	}
 	return nil
@@ -1172,7 +1172,7 @@ func (r *LibvirtMachineReconciler) reconcileAdditionalDisks(ctx context.Context,
 			if err := libvirtClient.CreateVolume(ctx, disk.StoragePool, volName, disk.Size.Value()); err != nil {
 				return r.handleLibvirtError(libvirtMachine, err, "creating additional disk")
 			}
-			recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeCreated,
+			recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeCreated, ActionProvision,
 				"Created additional disk %q in pool %q", volName, disk.StoragePool)
 		}
 
@@ -1553,7 +1553,7 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 			return nil, r.handleLibvirtError(libvirtMachine, err, "defining domain")
 		}
 		log.Info("Defined domain", "domain", rc.domainName, "duration", time.Since(defineStart).String())
-		recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventDomainDefined,
+		recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventDomainDefined, ActionProvision,
 			"Defined domain %q on host %q", rc.domainName, rc.libvirtHost.Name)
 	}
 
@@ -1570,7 +1570,7 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 			return nil, r.handleLibvirtError(libvirtMachine, err, "starting domain")
 		}
 		log.Info("Started domain", "domain", rc.domainName, "duration", time.Since(startTime).String())
-		recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventDomainStarted,
+		recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventDomainStarted, ActionProvision,
 			"Started domain %q", rc.domainName)
 		// Re-fetch domain info after start.
 		domainInfo, err = libvirtClient.GetDomain(ctx, rc.domainName)
@@ -1661,7 +1661,7 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 	if err := libvirtClient.UndefineDomain(ctx, domainName); err != nil && !libvirt.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("failed to undefine domain: %w", err)
 	}
-	recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventDomainDestroyed,
+	recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventDomainDestroyed, ActionDelete,
 		"Destroyed and undefined domain %q on host %q", domainName, libvirtHost.Name)
 
 	// Delete root disk volume.
@@ -1669,7 +1669,7 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 	if err := libvirtClient.DeleteVolume(ctx, storagePool, rootDiskVolume); err != nil && !libvirt.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("failed to delete root disk: %w", err)
 	}
-	recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeDeleted,
+	recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeDeleted, ActionDelete,
 		"Deleted root disk volume %q from pool %q", rootDiskVolume, storagePool)
 
 	// Delete bootstrap artifacts.
@@ -1694,7 +1694,7 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 		if err := libvirtClient.DeleteVolume(ctx, disk.StoragePool, volName); err != nil && !libvirt.IsNotFound(err) {
 			return ctrl.Result{}, fmt.Errorf("failed to delete additional disk %s: %w", volName, err)
 		}
-		recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeDeleted,
+		recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventVolumeDeleted, ActionDelete,
 			"Deleted additional disk %q from pool %q", volName, disk.StoragePool)
 	}
 
@@ -1705,7 +1705,7 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 		if err := libvirtClient.DestroyPool(ctx, ephPoolName); err != nil && !libvirt.IsNotFound(err) {
 			return ctrl.Result{}, fmt.Errorf("failed to destroy ephemeral pool: %w", err)
 		}
-		recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventEphemeralPoolDelete,
+		recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeNormal, EventEphemeralPoolDelete, ActionDelete,
 			"Destroyed ephemeral tmpfs pool %q", ephPoolName)
 	}
 
@@ -1781,7 +1781,7 @@ func (r *LibvirtMachineReconciler) handleLibvirtError(
 	}
 	// Retryable: the event names the operation so a machine stuck requeuing
 	// shows why in kubectl describe rather than only in controller logs.
-	recordEventf(r.Recorder, libvirtMachine, corev1.EventTypeWarning, EventProvisionFailed,
+	recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeWarning, EventProvisionFailed, ActionProvision,
 		"Error during %s: %v", operation, err)
 	return fmt.Errorf("error during %s: %w", operation, err)
 }
@@ -1795,7 +1795,8 @@ func (r *LibvirtMachineReconciler) setTerminalError(
 	libvirtMachine.Status.FailureReason = &reason
 	libvirtMachine.Status.FailureMessage = &message
 	libvirtMachine.Status.Ready = false
-	recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeWarning, reason, message)
+	recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeWarning, reason,
+		ActionProvision, "%s", message)
 }
 
 // SetupWithManager sets up the controller with the Manager.

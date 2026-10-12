@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,7 +64,7 @@ type LibvirtHostReconciler struct {
 	Scheme               *runtime.Scheme
 	SSHClientFactory     SSHClientFactory
 	LibvirtClientFactory LibvirtClientFactory
-	Recorder             record.EventRecorder
+	Recorder             events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch;create;update;patch;delete
@@ -290,7 +290,7 @@ func (r *LibvirtHostReconciler) setReachable(
 	if status == metav1.ConditionTrue {
 		eventType = corev1.EventTypeNormal
 	}
-	recordEvent(r.Recorder, host, eventType, reason, message)
+	recordEvent(r.Recorder, host, eventType, reason, ActionHealthCheck, "%s", message)
 }
 
 // hasReferencingMachines returns true if any LibvirtMachine in the same

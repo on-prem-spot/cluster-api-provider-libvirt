@@ -17,10 +17,8 @@ limitations under the License.
 package controller
 
 import (
-	"fmt"
-
-	"k8s.io/client-go/tools/record"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 )
 
 // Event reasons. These are the stable, machine-readable half of an event and
@@ -47,25 +45,30 @@ const (
 	EventInfrastructureReady = "InfrastructureReady"
 )
 
+// Event actions. The events.k8s.io API separates the reason (why) from the
+// action (what was being done), so these name the operation in progress.
+const (
+	ActionProvision   = "Provisioning"
+	ActionDelete      = "Deleting"
+	ActionHealthCheck = "HealthChecking"
+)
+
 // recordEvent emits a Kubernetes event, tolerating a nil recorder.
 //
 // The nil check is what lets a reconciler be constructed without a Recorder:
-// the unit tests do exactly that, and calling Event on a nil interface would
+// the unit tests do exactly that, and calling Eventf on a nil interface would
 // panic rather than simply not record. A missing recorder should cost
 // observability, never correctness.
-func recordEvent(recorder record.EventRecorder, obj client.Object, eventType, reason, message string) {
+//
+// related is always nil here: every event CAPLV emits concerns one object.
+func recordEvent(
+	recorder events.EventRecorder,
+	obj runtime.Object,
+	eventType, reason, action, note string,
+	args ...any,
+) {
 	if recorder == nil || obj == nil {
 		return
 	}
-	recorder.Event(obj, eventType, reason, message)
-}
-
-// recordEventf is recordEvent with formatting.
-func recordEventf(
-	recorder record.EventRecorder,
-	obj client.Object,
-	eventType, reason, format string,
-	args ...any,
-) {
-	recordEvent(recorder, obj, eventType, reason, fmt.Sprintf(format, args...))
+	recorder.Eventf(obj, nil, eventType, reason, action, note, args...)
 }
