@@ -23,3 +23,4 @@
 {"id":"int-be5471992b54fd9e74379ef9cf395bb3","kind":"field_change","created_at":"2026-10-12T18:16:18.334370777Z","actor":"Anthony Green","issue_id":"caplv-zxa","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-2aa6e4bedb9f33d79ffa0eeb32504bbe","kind":"field_change","created_at":"2026-10-12T18:17:32.896858111Z","actor":"Anthony Green","issue_id":"caplv-5cg","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
 {"id":"int-11936aa5bf81bd7f0f118949315868f5","kind":"field_change","created_at":"2026-10-12T18:26:11.895832469Z","actor":"Anthony Green","issue_id":"caplv-5cg","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-c294445d2bbb836a18bf6da11ccf350a","kind":"field_change","created_at":"2026-10-12T21:31:12.893094612Z","actor":"Anthony Green","issue_id":"caplv-4ub","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
