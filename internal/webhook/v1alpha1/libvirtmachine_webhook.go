@@ -47,6 +47,7 @@ var libvirtIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 func SetupLibvirtMachineWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &infrastructurev1alpha1.LibvirtMachine{}).
 		WithValidator(&LibvirtMachineCustomValidator{Client: mgr.GetClient()}).
+		WithDefaulter(&LibvirtMachineCustomDefaulter{}).
 		Complete()
 }
 
