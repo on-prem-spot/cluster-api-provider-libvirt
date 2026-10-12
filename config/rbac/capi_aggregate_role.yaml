@@ -1,0 +1,20 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capi-manager-libvirt
+  labels:
+    cluster.x-k8s.io/aggregate-to-manager: "true"
+rules:
+  - apiGroups:
+      - infrastructure.cluster.x-k8s.io
+    resources:
+      - libvirtclusters
+      - libvirtclusters/status
+      - libvirtclusters/finalizers
+      - libvirtmachines
+      - libvirtmachines/status
+      - libvirtmachines/finalizers
+      - libvirthosts
+      - libvirthosts/status
+      - libvirthosts/finalizers
+    verbs: [get, list, watch, create, update, patch, delete]
