@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- All three controllers now emit Kubernetes Events, so `kubectl describe` on a machine shows how it reached its current state rather than just the state. `LibvirtMachine` reports the domain and storage lifecycle (`DomainDefined`, `DomainStarted`, `DomainDestroyed`, `VolumeCreated`, `VolumeDeleted`, `BaseImageUploaded`, `EphemeralPoolCreated`, `EphemeralPoolDestroyed`) and warns on provisioning failures. `LibvirtHost` and `LibvirtCluster` emit on condition transitions only -- the host is health-checked on a timer whenever machines reference it, and the cluster reconciles on every `Cluster` change, so emitting per reconcile would bury the transition that actually mattered. The manager needs `create` and `patch` on events, which the shipped RBAC grants in both the core and `events.k8s.io` groups.
 - All three CRDs now carry `categories=cluster-api`, so `kubectl get cluster-api` lists `LibvirtCluster`, `LibvirtMachine` and `LibvirtHost` alongside the core CAPI resources.
 - Short names for the three CRDs: `libvirtcl`, `libvirtm`, `libvirth`.
 - `LibvirtCluster`, `LibvirtMachine` and `LibvirtHost` implement `GetV1Beta2Conditions`/`SetV1Beta2Conditions`, so CAPI's condition utilities operate on them directly. These types store `[]metav1.Condition`, so the v1beta2 accessors are the applicable contract rather than the deprecated `clusterv1.Conditions` pair.
