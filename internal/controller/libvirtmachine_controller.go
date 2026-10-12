@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,6 +58,7 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
 const (
@@ -120,6 +122,10 @@ func (r *LibvirtMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	if _, externallyManaged := libvirtMachine.Annotations[clusterv1.ManagedByAnnotation]; externallyManaged {
+		return ctrl.Result{}, nil
 	}
 
 	// Create patch helper for deferred status patch.
@@ -1769,16 +1775,21 @@ func (r *LibvirtMachineReconciler) setTerminalError(
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *LibvirtMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	clusterToMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.LibvirtMachineList{}, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
 	concurrency := r.MaxConcurrentReconciles
 	if concurrency <= 0 {
 		concurrency = defaultMaxConcurrentReconciles
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtMachine{}).
-		Watches(&clusterv1.Machine{}, handler.EnqueueRequestForOwner(
-			mgr.GetScheme(), mgr.GetRESTMapper(), &infrav1.LibvirtMachine{},
+		For(&infrav1.LibvirtMachine{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
+		Watches(&clusterv1.Machine{}, handler.EnqueueRequestsFromMapFunc(
+			util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("LibvirtMachine")),
 		)).
+		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(clusterToMachines)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
 		Named("libvirtmachine").
 		Complete(r)

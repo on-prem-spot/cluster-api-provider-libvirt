@@ -146,6 +146,8 @@ type LibvirtHostStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
+// +kubebuilder:resource:categories=cluster-api,shortName=libvirth
 // +kubebuilder:printcolumn:name="URI",type="string",JSONPath=".spec.uri"
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
 // +kubebuilder:printcolumn:name="vCPUs",type="integer",JSONPath=".status.capacity.availableVCPUs",priority=1

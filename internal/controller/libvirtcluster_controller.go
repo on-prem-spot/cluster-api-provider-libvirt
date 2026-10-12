@@ -18,28 +18,25 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
-	"strconv"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/atgreen/caplv/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
-)
-
-const (
-	clusterRequeueInterval  = 60 * time.Second
-	controlPlaneDialTimeout = 5 * time.Second
+	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
 // LibvirtClusterReconciler reconciles a LibvirtCluster object.
@@ -53,9 +50,8 @@ type LibvirtClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
 
-// Reconcile checks that the control plane endpoint is reachable and marks
-// the LibvirtCluster as ready.
-func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// Reconcile marks infrastructure ready once its externally managed endpoint is configured.
+func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := logf.FromContext(ctx).WithValues("cluster", req.Name, "namespace", req.Namespace)
 	log.Info("Reconciling LibvirtCluster")
 	ctx = logf.IntoContext(ctx, log)
@@ -69,6 +65,10 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	if _, externallyManaged := libvirtCluster.Annotations[clusterv1.ManagedByAnnotation]; externallyManaged {
+		return ctrl.Result{}, nil
+	}
+
 	// Create patch helper for deferred status patch.
 	patchHelper, err := patch.NewHelper(libvirtCluster, r.Client)
 	if err != nil {
@@ -77,6 +77,7 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	defer func() {
 		if patchErr := patchHelper.Patch(ctx, libvirtCluster); patchErr != nil {
 			log.Error(patchErr, "Failed to patch LibvirtCluster")
+			reterr = errors.Join(reterr, patchErr)
 		}
 	}()
 
@@ -96,43 +97,37 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// Check control plane endpoint reachability via TCP dial.
-	endpoint := libvirtCluster.Spec.ControlPlaneEndpoint
-	addr := net.JoinHostPort(endpoint.Host, strconv.Itoa(int(endpoint.Port)))
-
-	conn, err := net.DialTimeout("tcp", addr, controlPlaneDialTimeout)
-	if err != nil {
-		log.Info("Control plane endpoint not reachable", "address", addr, "error", err)
-		libvirtCluster.Status.Ready = false
-		apimeta.SetStatusCondition(&libvirtCluster.Status.Conditions, metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "ControlPlaneUnreachable",
-			Message:            fmt.Sprintf("TCP dial to %s failed: %v", addr, err),
-			ObservedGeneration: libvirtCluster.Generation,
-		})
-		return ctrl.Result{RequeueAfter: clusterRequeueInterval}, nil
+	if !libvirtCluster.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
 	}
-	_ = conn.Close()
-	log.Info("Control plane endpoint reachable", "address", addr)
 
-	// Control plane is reachable.
-	libvirtCluster.Status.Ready = true
-	apimeta.SetStatusCondition(&libvirtCluster.Status.Conditions, metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionTrue,
-		Reason:             infrav1.ReasonClusterReady,
-		Message:            fmt.Sprintf("Control plane endpoint %s is reachable", addr),
+	// CAPLV does not provision the endpoint. Requiring the API server to be
+	// reachable here would prevent CAPI from provisioning the control plane.
+	endpoint := libvirtCluster.Spec.ControlPlaneEndpoint
+	ready := endpoint.Host != "" && endpoint.Port > 0 && endpoint.Port <= 65535
+	condition := metav1.Condition{
+		Type: "Ready", Status: metav1.ConditionFalse,
+		Reason:             "WaitingForControlPlaneEndpoint",
+		Message:            "Configure a control plane endpoint host and port",
 		ObservedGeneration: libvirtCluster.Generation,
-	})
-
-	return ctrl.Result{RequeueAfter: clusterRequeueInterval}, nil
+	}
+	if ready {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = infrav1.ReasonClusterReady
+		condition.Message = fmt.Sprintf("Control plane endpoint %s:%d is configured", endpoint.Host, endpoint.Port)
+	}
+	libvirtCluster.Status.Ready = ready
+	apimeta.SetStatusCondition(&libvirtCluster.Status.Conditions, condition)
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *LibvirtClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtCluster{}).
+		For(&infrav1.LibvirtCluster{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
+		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(
+			util.ClusterToInfrastructureMapFunc(context.Background(), infrav1.GroupVersion.WithKind("LibvirtCluster"), mgr.GetClient(), &infrav1.LibvirtCluster{}),
+		)).
 		Named("libvirtcluster").
 		Complete(r)
 }

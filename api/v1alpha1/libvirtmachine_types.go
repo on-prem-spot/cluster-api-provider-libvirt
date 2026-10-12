@@ -342,6 +342,8 @@ type LibvirtMachineStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
+// +kubebuilder:resource:categories=cluster-api,shortName=libvirtm
 // +kubebuilder:printcolumn:name="Host",type="string",JSONPath=".spec.hostRef.name"
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.domainState"
