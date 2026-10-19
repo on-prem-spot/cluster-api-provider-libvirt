@@ -92,6 +92,9 @@ type LibvirtMachineReconciler struct {
 	// Each reconcile targets a different libvirt host over its own SSH connection.
 	// Default: 50.
 	MaxConcurrentReconciles int
+	// WatchFilterValue, when non-empty, restricts reconciliation to objects
+	// labelled cluster.x-k8s.io/watch-filter=<value>.
+	WatchFilterValue string
 
 	artifactCache sync.Map
 
@@ -1811,11 +1814,15 @@ func (r *LibvirtMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtMachine{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
+		For(&infrav1.LibvirtMachine{}, builder.WithPredicates(
+			predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()),
+			predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue),
+		)).
 		Watches(&clusterv1.Machine{}, handler.EnqueueRequestsFromMapFunc(
 			util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("LibvirtMachine")),
-		)).
-		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(clusterToMachines)).
+		), builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
+		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(clusterToMachines),
+			builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
 		Named("libvirtmachine").
 		Complete(r)

@@ -46,6 +46,9 @@ type LibvirtClusterReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
+	// WatchFilterValue, when non-empty, restricts reconciliation to objects
+	// labelled cluster.x-k8s.io/watch-filter=<value>.
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusters,verbs=get;list;watch;create;update;patch;delete
@@ -144,10 +147,13 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // SetupWithManager sets up the controller with the Manager.
 func (r *LibvirtClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtCluster{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
+		For(&infrav1.LibvirtCluster{}, builder.WithPredicates(
+			predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()),
+			predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue),
+		)).
 		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(
 			util.ClusterToInfrastructureMapFunc(context.Background(), infrav1.GroupVersion.WithKind("LibvirtCluster"), mgr.GetClient(), &infrav1.LibvirtCluster{}),
-		)).
+		), builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
 		Named("libvirtcluster").
 		Complete(r)
 }

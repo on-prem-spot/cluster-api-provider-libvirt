@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 
 	"os"
 
@@ -77,6 +78,7 @@ func main() {
 	var baseImageCacheDir string
 	var allowInsecureHostKeys bool
 	var allowInsecureImageTransport bool
+	var watchFilterValue string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -110,6 +112,10 @@ func main() {
 		"Permit LibvirtCluster.spec.baseImage sources that disable transport authentication "+
 			"(plain http:// URLs, oci.plainHTTP, s3.insecure, or any insecureSkipTLSVerify). "+
 			"Off by default: those bytes become the root disk of every worker VM.")
+	flag.StringVar(&watchFilterValue, "watch-filter", "",
+		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. "+
+			"Label key is always %s. If unspecified, the controller watches for all cluster-api objects.",
+			clusterv1.WatchLabel))
 	opts := zap.Options{
 		Development: false,
 	}
@@ -207,14 +213,16 @@ func main() {
 		SSHClientFactory:     sshClientFactory,
 		LibvirtClientFactory: libvirtClientFactory,
 		Recorder:             mgr.GetEventRecorder("libvirthost-controller"),
+		WatchFilterValue:     watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtHost")
 		os.Exit(1)
 	}
 	if err := (&controller.LibvirtClusterReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("libvirtcluster-controller"),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorder("libvirtcluster-controller"),
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtCluster")
 		os.Exit(1)
@@ -243,13 +251,15 @@ func main() {
 		BaseImageCache:          baseImageCache,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 		Recorder:                mgr.GetEventRecorder("libvirtmachine-controller"),
+		WatchFilterValue:        watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtMachine")
 		os.Exit(1)
 	}
 	if err := (&controller.CSRApproverReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CSRApprover")
 		os.Exit(1)

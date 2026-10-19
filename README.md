@@ -743,6 +743,17 @@ This is the safety net for the known limitation that CAPLV does not
 monitor VM health after provisioning. Without it, dead VMs leave orphaned
 Node objects in the cluster.
 
+### Running multiple provider instances (`--watch-filter`)
+
+Several CAPLV managers can share one management cluster, each owning a
+subset of objects. Start each manager with `--watch-filter=<value>` and
+label every object it should own — `Cluster`, `Machine`, `LibvirtCluster`,
+`LibvirtMachine` and `LibvirtHost` — with
+`cluster.x-k8s.io/watch-filter: <value>`. A manager ignores objects whose
+label does not match, and its CSR approver only approves CSRs for nodes
+backed by a matching `LibvirtMachine`. Without the flag, a manager
+reconciles everything.
+
 ## Key Design Decisions
 
 Rationale and trade-offs are recorded in [host management](docs/adr/0001-host-management.md)
