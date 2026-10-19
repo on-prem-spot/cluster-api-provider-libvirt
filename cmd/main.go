@@ -278,6 +278,14 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtClusterTemplate")
 			os.Exit(1)
 		}
+		if err := webhookv1alpha1.SetupLibvirtClusterWebhookWithManager(mgr, allowInsecureImageTransport); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtCluster")
+			os.Exit(1)
+		}
+		if err := webhookv1alpha1.SetupLibvirtHostWebhookWithManager(mgr, allowInsecureHostKeys); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtHost")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

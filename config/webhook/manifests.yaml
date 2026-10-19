@@ -36,6 +36,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-libvirtcluster
+  failurePolicy: Fail
+  name: vlibvirtcluster-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - libvirtclusters
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-libvirtclustertemplate
   failurePolicy: Fail
   name: vlibvirtclustertemplate-v1alpha1.kb.io
@@ -49,6 +69,26 @@ webhooks:
     - UPDATE
     resources:
     - libvirtclustertemplates
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-libvirthost
+  failurePolicy: Fail
+  name: vlibvirthost-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - libvirthosts
   sideEffects: None
 - admissionReviewVersions:
   - v1
