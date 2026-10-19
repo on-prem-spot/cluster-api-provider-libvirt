@@ -25,7 +25,13 @@ Use the Go version in `go.mod`. Before submitting Go changes, run:
 ```sh
 make lint-fix
 make test
+make verify
 ```
+
+`make verify` checks license headers on Go and shell files, runs `shellcheck`
+(skipped if it is not installed), and fails if `go mod tidy` or
+`make manifests generate` would change any files. New `.go` and `.sh` files need
+the Apache 2.0 header from `hack/boilerplate.go.txt`.
 
 After changing API types or Kubebuilder markers, regenerate artifacts with
 `make manifests generate`. Include the resulting changes in the PR. Do not edit

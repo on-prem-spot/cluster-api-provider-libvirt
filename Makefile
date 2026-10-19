@@ -105,6 +105,27 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+##@ Verify
+
+.PHONY: verify
+verify: verify-boilerplate verify-shellcheck verify-modules verify-gen ## Run all verification checks.
+
+.PHONY: verify-boilerplate
+verify-boilerplate: ## Verify Go and shell files carry the license header.
+	./hack/verify-boilerplate.sh
+
+.PHONY: verify-shellcheck
+verify-shellcheck: ## Run shellcheck on shell scripts (skipped if shellcheck is not installed).
+	./hack/verify-shellcheck.sh
+
+.PHONY: verify-modules
+verify-modules: ## Verify go.mod and go.sum are tidy.
+	./hack/verify-modules.sh
+
+.PHONY: verify-gen
+verify-gen: ## Verify generated manifests and code are up to date.
+	MAKE="$(MAKE)" ./hack/verify-gen.sh
+
 ##@ Build
 
 .PHONY: build
