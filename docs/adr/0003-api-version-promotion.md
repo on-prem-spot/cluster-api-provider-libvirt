@@ -34,9 +34,9 @@ The v1beta2 contract fields CAPLV now populates on v1alpha1 are:
 
 Known remaining gaps:
 
-- LibvirtMachine reports no `Ready` condition. CAPI falls back to
-  `initialization.provisioned` for the Machine's `InfrastructureReady`
-  condition, so this is cosmetic, but the contract expects the condition.
+- *(Closed by step 2.)* LibvirtMachine reported no `Ready` condition, and
+  terminal failures reached CAPI only through `status.failureReason`, which
+  CAPI v1.11+ no longer acts on.
 - `status.ready`, `status.failureReason` and `status.failureMessage` are not
   part of the v1beta2 contract. They remain on v1alpha1 for compatibility.
 - The provider does not allocate hosts or addresses, so a template cannot back
@@ -71,6 +71,11 @@ version makes clear which contract the API was designed against.
 2. **Close the contract gaps on v1alpha1** where that is additive: add the
    LibvirtMachine `Ready` condition, and stop relying on CAPI reading
    `failureReason`/`failureMessage`.
+
+   *Done.* LibvirtMachine has a `Ready` condition covering provisioning,
+   terminal failure and deletion. Every terminal error is reported on it and
+   on `InfrastructureReady`, with documented reasons. LibvirtCluster and
+   LibvirtMachine report a `Paused` condition.
 3. **Settle the breaking changes before beta.** These are the reasons to cut
    a new version at all; once v1beta2 is served they get much harder to make:
    - remove `status.ready`, `status.failureReason`, `status.failureMessage`

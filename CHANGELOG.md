@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `LibvirtMachine` reports a `Ready` condition covering its whole lifecycle, which CAPI mirrors into the Machine's `InfrastructureReady` condition. While provisioning it follows `InfrastructureReady` or whichever condition is holding provisioning back; after a terminal failure it is `False` with the failure's reason; while the machine is being deleted it is `False` with reason `Deleting`. `LibvirtCluster` and `LibvirtMachine` also report a `Paused` condition when they or their Cluster are paused.
 - `--watch-filter=<value>` restricts a manager to objects labelled `cluster.x-k8s.io/watch-filter=<value>`, so several CAPLV instances can share one management cluster. The filter applies to every controller and to the `Cluster`/`Machine`/`LibvirtMachine` watches feeding them. The CSR approver applies it through the backing `LibvirtMachine`'s label, since CSRs carry none, so one instance never approves kubelet CSRs for another tenant's nodes.
 - Each `LibvirtHost` is now reported as a failure domain: `LibvirtCluster.status.failureDomains` lists the hosts in the cluster's namespace (control-plane eligible, hosts being deleted excluded), and `LibvirtMachine.status.failureDomain` names the machine's host. CAPI copies these onto `Cluster.status.failureDomains` and `Machine.status.failureDomain`. Placement is still chosen by `spec.hostRef`.
 - `status.initialization.provisioned` on `LibvirtCluster` and `LibvirtMachine`, set alongside `status.ready`. See Fixed.
@@ -72,6 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Terminal provisioning failures were invisible to CAPI v1.11 and later. CAPLV recorded them only in `status.failureReason`, which the v1beta2 contract no longer acts on, and several paths left `InfrastructureReady` at its previous value, including `True` on a machine that had been provisioned before. Every terminal error now sets `InfrastructureReady` and `Ready` to `False` with its reason.
+- The README's `MachineHealthCheck` example declared `cluster.x-k8s.io/v1beta2` but used v1beta1 fields (`unhealthyConditions`, `nodeStartupTimeout`), so applying it failed. It now uses `spec.checks`.
 - CAPI v1.11 and later never saw CAPLV infrastructure as provisioned. They pick the v1beta2 contract (which CAPLV declares) and read `status.initialization.provisioned` rather than `status.ready`, and CAPLV did not set it. Both are now set.
 - The `LibvirtMachine` defaulting webhook also ran on update. A machine stored without `baseImagePool` (anything created before the defaulter shipped) got it written on its next update, which the validating webhook rejected as a change to the immutable spec. Every later update failed, including the controller's own finalizer and `providerID` patches. Defaulting now applies on create only.
 

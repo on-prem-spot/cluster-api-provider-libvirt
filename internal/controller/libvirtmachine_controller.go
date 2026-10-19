@@ -58,8 +58,8 @@ import (
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/scope"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/paused"
 	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
@@ -141,6 +141,7 @@ func (r *LibvirtMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 	defer func() {
+		setMachineReadyCondition(libvirtMachine)
 		if patchErr := patchHelper.Patch(ctx, libvirtMachine); patchErr != nil {
 			log.Error(patchErr, "Failed to patch LibvirtMachine")
 		}
@@ -162,10 +163,13 @@ func (r *LibvirtMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// If cluster is paused, return without requeueing.
-	if annotations.IsPaused(cluster, libvirtMachine) {
-		log.Info("LibvirtMachine or owning Cluster is paused, skipping reconciliation")
-		return ctrl.Result{}, nil
+	// If cluster is paused, return without requeueing. The Paused condition
+	// reports it, as the CAPI v1beta2 contract recommends.
+	if isPaused, _, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, libvirtMachine); err != nil || isPaused {
+		if isPaused {
+			log.Info("LibvirtMachine or owning Cluster is paused, skipping reconciliation")
+		}
+		return ctrl.Result{}, err
 	}
 
 	// Fetch LibvirtCluster from Cluster's InfrastructureRef.
@@ -725,13 +729,6 @@ func (r *LibvirtMachineReconciler) preflightSessionMode(ctx context.Context, rc 
 	logf.FromContext(ctx).Info("Terminal error: network type unsupported on session-mode host",
 		"networkType", lm.Spec.Network.Type, "host", rc.libvirtHost.Name)
 	r.setTerminalError(lm, infrav1.ReasonNetworkTypeUnsupported, msg)
-	apimeta.SetStatusCondition(&lm.Status.Conditions, metav1.Condition{
-		Type:               infrav1.InfrastructureReadyCondition,
-		Status:             metav1.ConditionFalse,
-		Reason:             infrav1.ReasonNetworkTypeUnsupported,
-		Message:            msg,
-		ObservedGeneration: lm.Generation,
-	})
 }
 
 // preflightPools verifies that every storage pool this machine references
@@ -788,13 +785,6 @@ func (r *LibvirtMachineReconciler) preflightPools(ctx context.Context, rc *recon
 		log.Info("Terminal error: storage pool not found",
 			"pool", p.name, "use", p.label, "host", rc.libvirtHost.Name, "reason", p.reason)
 		r.setTerminalError(lm, p.reason, msg)
-		apimeta.SetStatusCondition(&lm.Status.Conditions, metav1.Condition{
-			Type:               infrav1.InfrastructureReadyCondition,
-			Status:             metav1.ConditionFalse,
-			Reason:             p.reason,
-			Message:            msg,
-			ObservedGeneration: lm.Generation,
-		})
 		return nil
 	}
 	return nil
@@ -1795,6 +1785,12 @@ func (r *LibvirtMachineReconciler) handleLibvirtError(
 }
 
 // setTerminalError sets a terminal failure on the machine and stops reconciliation.
+//
+// The failure is recorded in the InfrastructureReady condition, from which
+// setMachineReadyCondition derives Ready: under the CAPI v1beta2 contract
+// conditions are the only way a terminal failure reaches the Machine.
+// status.failureReason and status.failureMessage are kept for v1beta1-era
+// consumers.
 func (r *LibvirtMachineReconciler) setTerminalError(
 	libvirtMachine *infrav1.LibvirtMachine,
 	reason string,
@@ -1803,6 +1799,13 @@ func (r *LibvirtMachineReconciler) setTerminalError(
 	libvirtMachine.Status.FailureReason = &reason
 	libvirtMachine.Status.FailureMessage = &message
 	libvirtMachine.Status.Ready = false
+	apimeta.SetStatusCondition(&libvirtMachine.Status.Conditions, metav1.Condition{
+		Type:               infrav1.InfrastructureReadyCondition,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: libvirtMachine.Generation,
+	})
 	recordEvent(r.Recorder, libvirtMachine, corev1.EventTypeWarning, reason,
 		ActionProvision, "%s", message)
 }

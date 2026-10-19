@@ -27,6 +27,20 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // condition constants (e.g. clusterv1.ReadyCondition) are untyped strings for
 // the same reason.
 const (
+	// ReadyCondition reports whether a LibvirtCluster or LibvirtMachine is
+	// ready. CAPI mirrors it into the Cluster's or Machine's
+	// InfrastructureReady condition.
+	//
+	// On a LibvirtMachine it covers the whole lifecycle, as the CAPI v1beta2
+	// InfraMachine contract expects. While provisioning it mirrors
+	// InfrastructureReady, or the condition blocking provisioning (reason
+	// ReasonProvisioning when there is none). After a terminal failure it is
+	// False with one of the terminal reasons below; CAPI no longer acts on
+	// status.failureReason, so this condition is how a terminal failure is
+	// reported. While the machine is being deleted it is False with reason
+	// ReasonDeleting.
+	ReadyCondition = "Ready"
+
 	// LibvirtHost conditions
 	HostReachableCondition = "Reachable"
 
@@ -39,7 +53,11 @@ const (
 	CleanupStalledCondition          = "CleanupStalled"
 	NodeLabelledCondition            = "NodeLabelled"
 
-	// Reasons — terminal
+	// Reasons — terminal. A LibvirtMachine reports these on its Ready and
+	// InfrastructureReady conditions, and in status.failureReason, once
+	// provisioning has stopped for good; the machine has to be replaced.
+	// ReasonStorageInsufficient is also terminal when the host lacks the
+	// space to create the root disk.
 	ReasonBaseImageNotFound     = "BaseImageNotFound"
 	ReasonBaseImagePoolNotFound = "BaseImagePoolNotFound"
 	ReasonStoragePoolNotFound   = "StoragePoolNotFound"
@@ -66,6 +84,10 @@ const (
 	ReasonHostNotReady          = "HostNotReady"
 	ReasonNodeNotJoined         = "NodeNotJoined"
 	ReasonBaseImageStaging      = "BaseImageStaging"
+	// ReasonProvisioning is set on a LibvirtMachine's Ready condition while
+	// provisioning is under way and no more specific condition says why it
+	// is not ready yet.
+	ReasonProvisioning = "Provisioning"
 	// ReasonNodeOwnershipMismatch is set when the Node named by this machine's
 	// artifact base name reports a different providerID, i.e. it was
 	// provisioned by some other machine and must not be modified.
@@ -87,6 +109,9 @@ const (
 	// Reasons — cleanup
 	ReasonCleanupStalled   = "CleanupStalled"
 	ReasonCleanupSucceeded = "CleanupSucceeded"
+	// ReasonDeleting is set on a LibvirtMachine's Ready condition once it is
+	// being deleted.
+	ReasonDeleting = "Deleting"
 
 	// Finalizers
 	MachineFinalizer = "infrastructure.cluster.x-k8s.io/libvirt-machine"

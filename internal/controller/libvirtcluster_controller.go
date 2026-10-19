@@ -41,8 +41,8 @@ import (
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/paused"
 	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
@@ -105,10 +105,13 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// If cluster is paused, return without requeueing.
-	if annotations.IsPaused(cluster, libvirtCluster) {
-		log.Info("LibvirtCluster or owning Cluster is paused, skipping reconciliation")
-		return ctrl.Result{}, nil
+	// If cluster is paused, return without requeueing. The Paused condition
+	// reports it, as the CAPI v1beta2 contract recommends.
+	if isPaused, _, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, libvirtCluster); err != nil || isPaused {
+		if isPaused {
+			log.Info("LibvirtCluster or owning Cluster is paused, skipping reconciliation")
+		}
+		return ctrl.Result{}, err
 	}
 
 	if !libvirtCluster.DeletionTimestamp.IsZero() {
@@ -126,7 +129,7 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	endpoint := libvirtCluster.Spec.ControlPlaneEndpoint
 	ready := endpoint.Host != "" && endpoint.Port > 0 && endpoint.Port <= 65535
 	condition := metav1.Condition{
-		Type: "Ready", Status: metav1.ConditionFalse,
+		Type: infrav1.ReadyCondition, Status: metav1.ConditionFalse,
 		Reason:             infrav1.ReasonWaitingForControlPlaneEndpoint,
 		Message:            "Configure a control plane endpoint host and port",
 		ObservedGeneration: libvirtCluster.Generation,
@@ -140,7 +143,7 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// FindStatusCondition points at, so a retained pointer would always
 	// compare equal and suppress every event.
 	var prevStatus metav1.ConditionStatus
-	if previous := apimeta.FindStatusCondition(libvirtCluster.Status.Conditions, "Ready"); previous != nil {
+	if previous := apimeta.FindStatusCondition(libvirtCluster.Status.Conditions, infrav1.ReadyCondition); previous != nil {
 		prevStatus = previous.Status
 	}
 	libvirtCluster.Status.Ready = ready

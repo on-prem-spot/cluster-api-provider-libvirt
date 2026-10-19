@@ -91,9 +91,17 @@ func TestClusterReadiness(t *testing.T) {
 			if provisioned != tc.ready {
 				t.Fatalf("initialization.provisioned=%v, want %v", provisioned, tc.ready)
 			}
-			if tc.paused || tc.external || tc.deleting {
+			if tc.external {
 				if len(got.Status.Conditions) != 0 {
-					t.Fatal("ignored resource status changed")
+					t.Fatal("externally managed resource status changed")
+				}
+			} else if p := meta.FindStatusCondition(got.Status.Conditions, clusterv1.PausedCondition); p == nil ||
+				(p.Status == metav1.ConditionTrue) != tc.paused {
+				t.Fatalf("incorrect Paused condition: %+v", p)
+			}
+			if tc.paused || tc.external || tc.deleting {
+				if meta.FindStatusCondition(got.Status.Conditions, infrav1.ReadyCondition) != nil {
+					t.Fatal("ignored resource reported a Ready condition")
 				}
 			} else if cond := meta.FindStatusCondition(got.Status.Conditions, "Ready"); cond == nil || (cond.Status == metav1.ConditionTrue) != tc.ready || cond.ObservedGeneration != 3 {
 				t.Fatalf("incorrect condition: %+v", cond)
