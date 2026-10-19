@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
@@ -104,7 +104,7 @@ func TestGetAddresses_StripsCIDR(t *testing.T) {
 		if addr.Address != expected[i] {
 			t.Errorf("address[%d] = %q, want %q", i, addr.Address, expected[i])
 		}
-		if addr.Type != clusterv1.MachineInternalIP {
+		if addr.Type != infrav1.MachineInternalIP {
 			t.Errorf("address[%d] type = %v, want MachineInternalIP", i, addr.Type)
 		}
 	}

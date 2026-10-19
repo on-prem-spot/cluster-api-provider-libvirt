@@ -19,7 +19,6 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // LibvirtMachineTemplateResource is the per-machine payload a MachineDeployment
@@ -28,7 +27,7 @@ type LibvirtMachineTemplateResource struct {
 	// metadata is the object metadata applied to the LibvirtMachines created
 	// from this template. Only labels and annotations are propagated.
 	// +optional
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+	ObjectMeta ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the LibvirtMachine spec stamped onto each created machine.
 	// +required

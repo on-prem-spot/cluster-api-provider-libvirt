@@ -21,11 +21,11 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // Condition types and reasons are untyped string constants on purpose.
 //
 // CAPLV stores conditions as []metav1.Condition, the CAPI v1beta2 shape,
-// whose Type and Reason fields are plain strings. clusterv1.ConditionType
-// belongs to the deprecated v1beta1 clusterv1.Conditions and would need a
-// string() conversion at every use without catching any mistake. CAPI's own
-// v1beta2 condition constants (e.g. clusterv1.ReadyV1Beta2Condition) are
-// untyped strings for the same reason.
+// whose Type and Reason fields are plain strings. A typed constant, like the
+// ConditionType of CAPI's deprecated v1beta1 conditions, would need a string()
+// conversion at every use without catching any mistake. CAPI's own v1beta2
+// condition constants (e.g. clusterv1.ReadyCondition) are untyped strings for
+// the same reason.
 const (
 	// LibvirtHost conditions
 	HostReachableCondition = "Reachable"
@@ -100,32 +100,32 @@ const (
 	ManagedNodeAnnotationsAnnotation = "infrastructure.cluster.x-k8s.io/libvirt-managed-annotations"
 )
 
-// GetV1Beta2Conditions returns the conditions used by CAPI's metav1 condition utilities.
-func (o *LibvirtCluster) GetV1Beta2Conditions() []metav1.Condition {
+// GetConditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtCluster) GetConditions() []metav1.Condition {
 	return o.Status.Conditions
 }
 
-// SetV1Beta2Conditions updates the conditions used by CAPI's metav1 condition utilities.
-func (o *LibvirtCluster) SetV1Beta2Conditions(conditions []metav1.Condition) {
+// SetConditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtCluster) SetConditions(conditions []metav1.Condition) {
 	o.Status.Conditions = conditions
 }
 
-// GetV1Beta2Conditions returns the conditions used by CAPI's metav1 condition utilities.
-func (o *LibvirtMachine) GetV1Beta2Conditions() []metav1.Condition {
+// GetConditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtMachine) GetConditions() []metav1.Condition {
 	return o.Status.Conditions
 }
 
-// SetV1Beta2Conditions updates the conditions used by CAPI's metav1 condition utilities.
-func (o *LibvirtMachine) SetV1Beta2Conditions(conditions []metav1.Condition) {
+// SetConditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtMachine) SetConditions(conditions []metav1.Condition) {
 	o.Status.Conditions = conditions
 }
 
-// GetV1Beta2Conditions returns the conditions used by CAPI's metav1 condition utilities.
-func (o *LibvirtHost) GetV1Beta2Conditions() []metav1.Condition {
+// GetConditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtHost) GetConditions() []metav1.Condition {
 	return o.Status.Conditions
 }
 
-// SetV1Beta2Conditions updates the conditions used by CAPI's metav1 condition utilities.
-func (o *LibvirtHost) SetV1Beta2Conditions(conditions []metav1.Condition) {
+// SetConditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtHost) SetConditions(conditions []metav1.Condition) {
 	o.Status.Conditions = conditions
 }

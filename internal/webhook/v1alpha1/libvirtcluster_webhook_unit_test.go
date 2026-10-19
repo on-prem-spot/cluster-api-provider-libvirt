@@ -21,8 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
@@ -50,10 +48,10 @@ func TestLibvirtClusterValidateCreate(t *testing.T) {
 	}{
 		{name: "empty spec"},
 		{name: "endpoint set", mutate: func(s *infrav1.LibvirtClusterSpec) {
-			s.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "api.example.com", Port: 6443}
+			s.ControlPlaneEndpoint = infrav1.APIEndpoint{Host: "api.example.com", Port: 6443}
 		}},
 		{name: "port out of range", wantErr: "spec.controlPlaneEndpoint.port", mutate: func(s *infrav1.LibvirtClusterSpec) {
-			s.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "api.example.com", Port: 70000}
+			s.ControlPlaneEndpoint = infrav1.APIEndpoint{Host: "api.example.com", Port: 70000}
 		}},
 		{name: "port without host", wantErr: "spec.controlPlaneEndpoint", mutate: func(s *infrav1.LibvirtClusterSpec) {
 			s.ControlPlaneEndpoint.Port = 6443
@@ -118,7 +116,7 @@ func TestLibvirtClusterEndpointImmutableOnceSet(t *testing.T) {
 	v := &LibvirtClusterCustomValidator{}
 	unset := &infrav1.LibvirtCluster{}
 	set := &infrav1.LibvirtCluster{Spec: infrav1.LibvirtClusterSpec{
-		ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: "api.example.com", Port: 6443}}}
+		ControlPlaneEndpoint: infrav1.APIEndpoint{Host: "api.example.com", Port: 6443}}}
 	moved := set.DeepCopy()
 	moved.Spec.ControlPlaneEndpoint.Host = "api2.example.com"
 

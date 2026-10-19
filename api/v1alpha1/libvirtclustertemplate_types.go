@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // LibvirtClusterTemplateResource is the per-cluster payload a ClusterClass
@@ -27,7 +26,7 @@ type LibvirtClusterTemplateResource struct {
 	// metadata is the object metadata applied to the LibvirtClusters created
 	// from this template. Only labels and annotations are propagated.
 	// +optional
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+	ObjectMeta ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the LibvirtCluster spec stamped onto each created cluster.
 	// +required

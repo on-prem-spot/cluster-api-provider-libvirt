@@ -449,10 +449,10 @@ spec:
                   created from it.
                 properties:
                   host:
-                    description: The hostname on which the API server is serving.
+                    description: host is the hostname on which the API server is serving.
                     type: string
                   port:
-                    description: The port on which the API server is serving.
+                    description: port is the port on which the API server is serving.
                     format: int32
                     type: integer
                 required:
@@ -534,7 +534,7 @@ spec:
                 items:
                   description: |-
                     FailureDomain describes one failure domain, matching the Cluster API v1beta2
-                    clusterv1.FailureDomain type.
+                    FailureDomain type.
                   properties:
                     attributes:
                       additionalProperties:

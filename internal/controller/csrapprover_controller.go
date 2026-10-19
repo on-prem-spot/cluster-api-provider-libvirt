@@ -35,7 +35,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 const (
@@ -135,14 +135,15 @@ func (r *CSRApproverReconciler) libvirtMachineForNode(ctx context.Context, nodeN
 		machine := &machineList.Items[i]
 
 		// Check if the infrastructure ref points to a LibvirtMachine.
-		if machine.Spec.InfrastructureRef.GroupVersionKind().Kind != "LibvirtMachine" {
+		if machine.Spec.InfrastructureRef.GroupKind() != infrav1.GroupVersion.WithKind("LibvirtMachine").GroupKind() {
 			continue
 		}
 
-		// Look up the LibvirtMachine to get the domain name.
+		// Look up the LibvirtMachine to get the domain name. Infrastructure
+		// references are always to an object in the Machine's namespace.
 		lm := &infrav1.LibvirtMachine{}
 		lmKey := client.ObjectKey{
-			Namespace: machine.Spec.InfrastructureRef.Namespace,
+			Namespace: machine.Namespace,
 			Name:      machine.Spec.InfrastructureRef.Name,
 		}
 		if err := r.Get(ctx, lmKey, lm); err != nil {

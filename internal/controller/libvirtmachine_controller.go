@@ -56,7 +56,7 @@ import (
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/iso"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/libvirt"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/scope"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -171,7 +171,7 @@ func (r *LibvirtMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Fetch LibvirtCluster from Cluster's InfrastructureRef.
 	libvirtCluster := &infrav1.LibvirtCluster{}
 	infraRef := cluster.Spec.InfrastructureRef
-	if infraRef == nil {
+	if !infraRef.IsDefined() {
 		return ctrl.Result{}, fmt.Errorf("cluster %s/%s has no InfrastructureRef", cluster.Namespace, cluster.Name)
 	}
 	infraKey := types.NamespacedName{

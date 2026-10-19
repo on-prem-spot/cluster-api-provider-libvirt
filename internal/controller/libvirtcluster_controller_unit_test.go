@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -57,8 +57,8 @@ func TestClusterReadiness(t *testing.T) {
 			if err := clusterv1.AddToScheme(s); err != nil {
 				t.Fatal(err)
 			}
-			owner := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "default"}, Spec: clusterv1.ClusterSpec{Paused: tc.paused}}
-			obj := &infrav1.LibvirtCluster{ObjectMeta: metav1.ObjectMeta{Name: "infra", Namespace: "default", Generation: 3, OwnerReferences: []metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: "Cluster", Name: owner.Name}}}, Spec: infrav1.LibvirtClusterSpec{ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: tc.host, Port: tc.port}}}
+			owner := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "default"}, Spec: clusterv1.ClusterSpec{Paused: &tc.paused}}
+			obj := &infrav1.LibvirtCluster{ObjectMeta: metav1.ObjectMeta{Name: "infra", Namespace: "default", Generation: 3, OwnerReferences: []metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: "Cluster", Name: owner.Name}}}, Spec: infrav1.LibvirtClusterSpec{ControlPlaneEndpoint: infrav1.APIEndpoint{Host: tc.host, Port: tc.port}}}
 			if tc.external {
 				obj.Annotations = map[string]string{clusterv1.ManagedByAnnotation: "other"}
 			}
@@ -67,7 +67,7 @@ func TestClusterReadiness(t *testing.T) {
 				obj.DeletionTimestamp = &now
 				obj.Finalizers = []string{"test"}
 			}
-			owner.Spec.InfrastructureRef = &corev1.ObjectReference{APIVersion: infrav1.GroupVersion.String(), Kind: "LibvirtCluster", Name: obj.Name}
+			owner.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{APIGroup: infrav1.GroupVersion.Group, Kind: "LibvirtCluster", Name: obj.Name}
 			c := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(obj).WithObjects(owner, obj).Build()
 			r := &LibvirtClusterReconciler{Client: c, Scheme: s}
 			key := types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name}
@@ -111,7 +111,7 @@ func TestClusterStatusPatchFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "default"}}
-	obj := &infrav1.LibvirtCluster{ObjectMeta: metav1.ObjectMeta{Name: "infra", Namespace: "default", OwnerReferences: []metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: "Cluster", Name: owner.Name}}}, Spec: infrav1.LibvirtClusterSpec{ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: "127.0.0.1", Port: 1}}}
+	obj := &infrav1.LibvirtCluster{ObjectMeta: metav1.ObjectMeta{Name: "infra", Namespace: "default", OwnerReferences: []metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: "Cluster", Name: owner.Name}}}, Spec: infrav1.LibvirtClusterSpec{ControlPlaneEndpoint: infrav1.APIEndpoint{Host: "127.0.0.1", Port: 1}}}
 	patchErr := errors.New("status write unavailable")
 	c := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(obj).WithObjects(owner, obj).WithInterceptorFuncs(interceptor.Funcs{
 		SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {

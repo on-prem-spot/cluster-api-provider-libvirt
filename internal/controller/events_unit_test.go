@@ -22,12 +22,11 @@ import (
 	"testing"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -158,12 +157,10 @@ func TestClusterEventOnReadinessTransitionOnly(t *testing.T) {
 			}},
 		},
 		Spec: infrav1.LibvirtClusterSpec{
-			ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: "127.0.0.1", Port: 6443},
+			ControlPlaneEndpoint: infrav1.APIEndpoint{Host: "127.0.0.1", Port: 6443},
 		},
 	}
-	owner.Spec.InfrastructureRef = &corev1.ObjectReference{
-		APIVersion: infrav1.GroupVersion.String(), Kind: "LibvirtCluster", Name: obj.Name,
-	}
+	owner.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{APIGroup: infrav1.GroupVersion.Group, Kind: "LibvirtCluster", Name: obj.Name}
 	c := fake.NewClientBuilder().WithScheme(sch).
 		WithStatusSubresource(obj).WithObjects(owner, obj).Build()
 	rec := &events.FakeRecorder{Events: make(chan string, 10)}

@@ -20,10 +20,9 @@ import (
 	"context"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
@@ -40,8 +39,8 @@ func TestLibvirtMachineForNode_HonoursWatchFilter(t *testing.T) {
 	machine := &clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: "default",
 			Labels: map[string]string{clusterv1.ClusterNameLabel: "spot"}},
-		Spec: clusterv1.MachineSpec{ClusterName: "spot", InfrastructureRef: corev1.ObjectReference{
-			APIVersion: infrav1.GroupVersion.String(), Kind: "LibvirtMachine", Namespace: "default", Name: "worker01"}},
+		Spec: clusterv1.MachineSpec{ClusterName: "spot", InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+			APIGroup: infrav1.GroupVersion.Group, Kind: "LibvirtMachine", Name: "worker01"}},
 	}
 	lm := &infrav1.LibvirtMachine{ObjectMeta: metav1.ObjectMeta{Name: "worker01", Namespace: "default",
 		Labels: map[string]string{clusterv1.WatchLabel: "tenant-a"}}}

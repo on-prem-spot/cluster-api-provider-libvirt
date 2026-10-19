@@ -20,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // BootstrapFormat defines the format of bootstrap data.
@@ -326,7 +325,7 @@ type LibvirtMachineStatus struct {
 
 	// addresses is the list of addresses assigned to the machine.
 	// +optional
-	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
+	Addresses []MachineAddress `json:"addresses,omitempty"`
 
 	// domainUUID is the UUID of the libvirt domain.
 	// +optional

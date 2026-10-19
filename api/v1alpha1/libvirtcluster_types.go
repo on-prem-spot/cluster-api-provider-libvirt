@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // LibvirtClusterSpec defines the desired state of LibvirtCluster.
@@ -33,7 +32,7 @@ type LibvirtClusterSpec struct {
 	// endpoint into a template would stamp the same address onto every cluster
 	// created from it.
 	// +optional
-	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
+	ControlPlaneEndpoint APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
 
 	// bootArtifacts, when set, switches first-boot ignition delivery from
 	// QEMU fw_cfg to libvirt direct-kernel-boot plus a virtio-blk ignition
@@ -373,7 +372,7 @@ type LibvirtClusterStatus struct {
 }
 
 // FailureDomain describes one failure domain, matching the Cluster API v1beta2
-// clusterv1.FailureDomain type.
+// FailureDomain type.
 type FailureDomain struct {
 	// name is the name of the failure domain: the name of a LibvirtHost.
 	// +required

@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Built against CAPI v1.14.3 and its v1beta2 Go API (`sigs.k8s.io/cluster-api/api/core/v1beta2`) instead of v1.9.11 and the deprecated v1beta1 API, with controller-runtime v0.24.1 and Kubernetes libraries v0.36.3. This is step 1 of ADR 0003 and changes no CRD schema: v1alpha1 now defines its own `APIEndpoint`, `ObjectMeta` and `MachineAddress` with the schema it already had, since the v1beta2 types add validation stored objects would fail. CAPI v1.11 or later remains required.
 - The CRDs now carry only the `cluster.x-k8s.io/v1beta2` contract label, matching `metadata.yaml`. **CAPI cores that only implement the v1beta1 contract (v1.10 and earlier) are no longer supported**: they would read these objects with v1beta1 field shapes, and the list-shaped `failureDomains` fails to parse as the v1beta1 map.
 - CI is split from one `build.yaml` into focused workflows: `golangci-lint`, `verify`, `go-vulncheck`, `ci` (tests, then image) and `release`, with `test` and `image` as reusable workflows. Status check names change (e.g. "Test / Build and Test"), so branch protection rules naming the old checks need updating.
 

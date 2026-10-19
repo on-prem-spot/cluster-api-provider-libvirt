@@ -20,8 +20,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
 
 var (
@@ -33,8 +34,25 @@ var (
 	GroupVersion = SchemeGroupVersion
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
-	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
+	SchemeBuilder = &schemeBuilder{}
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
+
+// schemeBuilder keeps the SchemeBuilder.Register(objs...) form the
+// *_types.go files use, on top of apimachinery's runtime.SchemeBuilder.
+// controller-runtime's scheme.Builder offered the same but is deprecated for
+// API packages, which should depend only on apimachinery.
+type schemeBuilder struct {
+	runtime.SchemeBuilder
+}
+
+// Register adds objs to the group-version when the scheme is built.
+func (b *schemeBuilder) Register(objs ...runtime.Object) {
+	b.SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, objs...)
+		metav1.AddToGroupVersion(s, SchemeGroupVersion)
+		return nil
+	})
+}

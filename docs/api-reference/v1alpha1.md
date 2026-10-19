@@ -17,6 +17,23 @@ Package v1alpha1 contains API Schema definitions for the infrastructure v1alpha1
 
 
 
+#### APIEndpoint
+
+
+
+APIEndpoint represents a reachable Kubernetes API endpoint.
+
+
+
+_Appears in:_
+- [LibvirtClusterSpec](#libvirtclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `host` _string_ | host is the hostname on which the API server is serving. |  |  |
+| `port` _integer_ | port is the port on which the API server is serving. |  |  |
+
+
 #### AdditionalDiskSpec
 
 
@@ -31,7 +48,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | name is a unique identifier for this disk within the machine. |  | MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.:-]+$` <br />Required: \{\} <br /> |
-| `size` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#quantity-resource-api)_ | size is the desired size of the disk. |  | Required: \{\} <br /> |
+| `size` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#quantity-resource-api)_ | size is the desired size of the disk. |  | Required: \{\} <br /> |
 | `storagePool` _string_ | storagePool is the name of the libvirt storage pool to use. |  | MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.:-]+$` <br />Required: \{\} <br /> |
 | `bus` _string_ | bus is the disk bus type. | virtio | Optional: \{\} <br /> |
 
@@ -229,7 +246,7 @@ _Appears in:_
 
 
 FailureDomain describes one failure domain, matching the Cluster API v1beta2
-clusterv1.FailureDomain type.
+FailureDomain type.
 
 
 
@@ -333,7 +350,7 @@ It fulfills the Cluster API infrastructure cluster contract.
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `infrastructure.cluster.x-k8s.io/v1alpha1` | | |
 | `kind` _string_ | `LibvirtCluster` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtClusterSpec](#libvirtclusterspec)_ | spec defines the desired state of LibvirtCluster. |  | Required: \{\} <br /> |
 | `status` _[LibvirtClusterStatus](#libvirtclusterstatus)_ | status defines the observed state of LibvirtCluster. |  | Optional: \{\} <br /> |
 
@@ -370,7 +387,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `controlPlaneEndpoint` _[APIEndpoint](https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#APIEndpoint)_ | controlPlaneEndpoint represents the endpoint used to communicate with the<br />control plane.<br />Optional, because an unset endpoint is a legitimate state rather than an<br />invalid object: the cluster simply reports Ready=false with reason<br />WaitingForControlPlaneEndpoint until a host and a valid port appear. It<br />also has to be omittable for LibvirtClusterTemplate, where baking one<br />endpoint into a template would stamp the same address onto every cluster<br />created from it. |  | Optional: \{\} <br /> |
+| `controlPlaneEndpoint` _[APIEndpoint](#apiendpoint)_ | controlPlaneEndpoint represents the endpoint used to communicate with the<br />control plane.<br />Optional, because an unset endpoint is a legitimate state rather than an<br />invalid object: the cluster simply reports Ready=false with reason<br />WaitingForControlPlaneEndpoint until a host and a valid port appear. It<br />also has to be omittable for LibvirtClusterTemplate, where baking one<br />endpoint into a template would stamp the same address onto every cluster<br />created from it. |  | Optional: \{\} <br /> |
 | `bootArtifacts` _[BootArtifactsSpec](#bootartifactsspec)_ | bootArtifacts, when set, switches first-boot ignition delivery from<br />QEMU fw_cfg to libvirt direct-kernel-boot plus a virtio-blk ignition<br />disk. The kernel's qemu_fw_cfg driver does O(n²) offset reads, which<br />burns seconds of wall-clock time for multi-MB ignition payloads. |  | Optional: \{\} <br /> |
 | `baseImage` _[BaseImageSpec](#baseimagespec)_ | baseImage, when set, lets the controller distribute the cluster's<br />root-disk qcow2 base image to every libvirt host that runs a machine in<br />this cluster. The image is fetched once into the controller-local cache<br />and SCP'd onto each host as needed; subsequent machines on the same<br />host reuse the already-staged volume. Hosts no longer need the qcow2<br />pre-staged via Ansible. |  | Optional: \{\} <br /> |
 
@@ -391,7 +408,7 @@ _Appears in:_
 | `ready` _boolean_ | ready indicates whether the cluster infrastructure is ready. |  | Optional: \{\} <br /> |
 | `initialization` _[LibvirtClusterInitializationStatus](#libvirtclusterinitializationstatus)_ | initialization reports one-time provisioning milestones, as defined by<br />the Cluster API v1beta2 InfraCluster contract. Cluster API releases that<br />use the v1beta2 contract read initialization.provisioned instead of<br />ready; both are set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
 | `failureDomains` _[FailureDomain](#failuredomain) array_ | failureDomains lists the failure domains available to machines of this<br />cluster, in the list shape of the Cluster API v1beta2 InfraCluster<br />contract. Each LibvirtHost in the cluster's namespace is its own failure<br />domain, named after the host: a host is an independent hypervisor whose<br />loss takes down only the VMs it runs. |  | MaxItems: 10000 <br />Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtCluster resource. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtCluster resource. |  | Optional: \{\} <br /> |
 
 
 #### LibvirtClusterTemplate
@@ -421,7 +438,7 @@ when a template carries one.
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `infrastructure.cluster.x-k8s.io/v1alpha1` | | |
 | `kind` _string_ | `LibvirtClusterTemplate` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtClusterTemplateSpec](#libvirtclustertemplatespec)_ | spec defines the desired state of LibvirtClusterTemplate. |  | Required: \{\} <br /> |
 
 
@@ -439,7 +456,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `metadata` _[ObjectMeta](https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#ObjectMeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtClusterSpec](#libvirtclusterspec)_ | spec is the LibvirtCluster spec stamped onto each created cluster. |  | Required: \{\} <br /> |
 
 
@@ -475,7 +492,7 @@ It represents a reusable libvirt host connection configuration.
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `infrastructure.cluster.x-k8s.io/v1alpha1` | | |
 | `kind` _string_ | `LibvirtHost` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtHostSpec](#libvirthostspec)_ | spec defines the desired state of LibvirtHost. |  | Required: \{\} <br /> |
 | `status` _[LibvirtHostStatus](#libvirthoststatus)_ | status defines the observed state of LibvirtHost. |  | Optional: \{\} <br /> |
 
@@ -517,8 +534,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `ready` _boolean_ | ready indicates whether the host is reachable and usable. |  | Optional: \{\} <br /> |
 | `capacity` _[HostCapacity](#hostcapacity)_ | capacity reports the discovered host resources and what is available<br />for CAPLV after reservations. |  | Optional: \{\} <br /> |
-| `lastChecked` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#time-v1-meta)_ | lastChecked is the timestamp of the last connectivity check. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtHost resource. |  | Optional: \{\} <br /> |
+| `lastChecked` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | lastChecked is the timestamp of the last connectivity check. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtHost resource. |  | Optional: \{\} <br /> |
 
 
 #### LibvirtMachine
@@ -536,7 +553,7 @@ It represents a virtual machine managed by libvirt as a Cluster API infrastructu
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `infrastructure.cluster.x-k8s.io/v1alpha1` | | |
 | `kind` _string_ | `LibvirtMachine` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtMachineSpec](#libvirtmachinespec)_ | spec defines the desired state of LibvirtMachine. |  | Required: \{\} <br /> |
 | `status` _[LibvirtMachineStatus](#libvirtmachinestatus)_ | status defines the observed state of LibvirtMachine. |  | Optional: \{\} <br /> |
 
@@ -573,7 +590,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `hostRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | hostRef is a reference to a LibvirtHost resource in the same namespace. |  | Required: \{\} <br /> |
+| `hostRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | hostRef is a reference to a LibvirtHost resource in the same namespace. |  | Required: \{\} <br /> |
 | `domain` _[DomainSpec](#domainspec)_ | domain defines the virtual machine domain configuration. |  | Required: \{\} <br /> |
 | `rootDisk` _[RootDiskSpec](#rootdiskspec)_ | rootDisk defines the root disk configuration. |  | Required: \{\} <br /> |
 | `additionalDisks` _[AdditionalDiskSpec](#additionaldiskspec) array_ | additionalDisks is an optional list of additional data disks to attach. |  | Optional: \{\} <br /> |
@@ -600,13 +617,13 @@ _Appears in:_
 | `ready` _boolean_ | ready indicates whether the machine infrastructure is ready. |  | Optional: \{\} <br /> |
 | `initialization` _[LibvirtMachineInitializationStatus](#libvirtmachineinitializationstatus)_ | initialization reports one-time provisioning milestones, as defined by<br />the Cluster API v1beta2 InfraMachine contract. Cluster API releases that<br />use the v1beta2 contract read initialization.provisioned instead of<br />ready; both are set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
 | `failureDomain` _string_ | failureDomain is the failure domain the machine runs in, as defined by<br />the Cluster API v1beta2 InfraMachine contract. Failure domains are<br />LibvirtHosts, so this is always spec.hostRef.name. |  | MaxLength: 256 <br />MinLength: 1 <br />Optional: \{\} <br /> |
-| `addresses` _[MachineAddress](https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#MachineAddress) array_ | addresses is the list of addresses assigned to the machine. |  | Optional: \{\} <br /> |
+| `addresses` _[MachineAddress](#machineaddress) array_ | addresses is the list of addresses assigned to the machine. |  | Optional: \{\} <br /> |
 | `domainUUID` _string_ | domainUUID is the UUID of the libvirt domain. |  | Optional: \{\} <br /> |
 | `domainState` _string_ | domainState is the current state of the libvirt domain (e.g. running, shutoff). |  | Optional: \{\} <br /> |
 | `managedArtifacts` _[ManagedArtifacts](#managedartifacts)_ | managedArtifacts tracks the libvirt artifacts managed by the controller. |  | Optional: \{\} <br /> |
 | `failureReason` _string_ | failureReason is a machine-readable string indicating the reason for a failure. |  | Optional: \{\} <br /> |
 | `failureMessage` _string_ | failureMessage is a human-readable description of the failure. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtMachine resource. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtMachine resource. |  | Optional: \{\} <br /> |
 
 
 #### LibvirtMachineTemplate
@@ -635,7 +652,7 @@ CAPLV does not do yet. The validating webhook warns about this on create.
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `infrastructure.cluster.x-k8s.io/v1alpha1` | | |
 | `kind` _string_ | `LibvirtMachineTemplate` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtMachineTemplateSpec](#libvirtmachinetemplatespec)_ | spec defines the desired state of LibvirtMachineTemplate. |  | Required: \{\} <br /> |
 | `status` _[LibvirtMachineTemplateStatus](#libvirtmachinetemplatestatus)_ | status defines the observed state of LibvirtMachineTemplate. |  | Optional: \{\} <br /> |
 
@@ -654,7 +671,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `metadata` _[ObjectMeta](https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#ObjectMeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `spec` _[LibvirtMachineSpec](#libvirtmachinespec)_ | spec is the LibvirtMachine spec stamped onto each created machine. |  | Required: \{\} <br /> |
 
 
@@ -689,6 +706,40 @@ capacity field the CAPI contract reads for cluster autoscaling.
 _Appears in:_
 - [LibvirtMachineTemplate](#libvirtmachinetemplate)
 
+
+
+#### MachineAddress
+
+
+
+MachineAddress contains information for the node's address.
+
+
+
+_Appears in:_
+- [LibvirtMachineStatus](#libvirtmachinestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[MachineAddressType](#machineaddresstype)_ | type is the machine address type, one of Hostname, ExternalIP, InternalIP, ExternalDNS or InternalDNS. |  |  |
+| `address` _string_ | address is the machine address. |  |  |
+
+
+#### MachineAddressType
+
+_Underlying type:_ _string_
+
+MachineAddressType is the type of a MachineAddress: one of Hostname,
+ExternalIP, InternalIP, ExternalDNS or InternalDNS.
+
+
+
+_Appears in:_
+- [MachineAddress](#machineaddress)
+
+| Field | Description |
+| --- | --- |
+| `InternalIP` |  |
 
 
 #### ManagedArtifacts
@@ -804,6 +855,25 @@ _Appears in:_
 | `initramfsSHA256` _string_ |  |  | Optional: \{\} <br /> |
 
 
+#### ObjectMeta
+
+
+
+ObjectMeta is the subset of metav1.ObjectMeta a template propagates to the
+objects created from it: labels and annotations.
+
+
+
+_Appears in:_
+- [LibvirtClusterTemplateResource](#libvirtclustertemplateresource)
+- [LibvirtMachineTemplateResource](#libvirtmachinetemplateresource)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `labels` _object (keys:string, values:string)_ | labels is a map of string keys and values that can be used to organize and categorize<br />(scope and select) objects. May match selectors of replication controllers<br />and services.<br />More info: http://kubernetes.io/docs/user-guide/labels |  | Optional: \{\} <br /> |
+| `annotations` _object (keys:string, values:string)_ | annotations is an unstructured key value map stored with a resource that may be<br />set by external tools to store and retrieve arbitrary metadata. They are not<br />queryable and should be preserved when modifying objects.<br />More info: http://kubernetes.io/docs/user-guide/annotations |  | Optional: \{\} <br /> |
+
+
 #### ReservedResources
 
 
@@ -834,7 +904,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `size` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#quantity-resource-api)_ | size is the desired size of the root disk. |  | Required: \{\} <br /> |
+| `size` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#quantity-resource-api)_ | size is the desired size of the root disk. |  | Required: \{\} <br /> |
 | `storagePool` _string_ | storagePool is the name of the pre-existing libvirt storage pool<br />that receives the root disk volume (and the NoCloud ISO for<br />cloud-init guests). Not used as the disk target when ephemeralPool<br />is true — CAPLV then provisions its own per-machine tmpfs pool<br />instead — though baseImagePool still defaults to this value when<br />unset. |  | MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.:-]+$` <br />Required: \{\} <br /> |
 | `baseImage` _string_ | baseImage is the name of the base image volume to clone from. |  | MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.:-]+$` <br />Required: \{\} <br /> |
 | `baseImagePool` _string_ | baseImagePool is the storage pool containing the base image.<br />If unset, defaults to storagePool. This allows the base image to<br />live on persistent storage while ephemeral VM disks use a different<br />pool (e.g., tmpfs-backed for ephemeral workers). |  | Pattern: `^[A-Za-z0-9_.:-]+$` <br />Optional: \{\} <br /> |
