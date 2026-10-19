@@ -754,6 +754,17 @@ label does not match, and its CSR approver only approves CSRs for nodes
 backed by a matching `LibvirtMachine`. Without the flag, a manager
 reconciles everything.
 
+### Failure domains
+
+Each `LibvirtHost` is a failure domain. `LibvirtCluster.status.failureDomains`
+lists every host in the cluster's namespace (except hosts being deleted),
+all marked control-plane eligible, and CAPI copies the list to
+`Cluster.status.failureDomains`. Each `LibvirtMachine` reports its host in
+`status.failureDomain`, which CAPI copies to `Machine.status.failureDomain`.
+Both fields use the CAPI v1beta2 contract shapes. Placement is still chosen
+by `spec.hostRef`. CAPLV does not yet assign hosts from a failure domain
+chosen by CAPI.
+
 ## Key Design Decisions
 
 Rationale and trade-offs are recorded in [host management](docs/adr/0001-host-management.md)

@@ -524,6 +524,44 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              failureDomains:
+                description: |-
+                  failureDomains lists the failure domains available to machines of this
+                  cluster, in the list shape of the Cluster API v1beta2 InfraCluster
+                  contract. Each LibvirtHost in the cluster's namespace is its own failure
+                  domain, named after the host: a host is an independent hypervisor whose
+                  loss takes down only the VMs it runs.
+                items:
+                  description: |-
+                    FailureDomain describes one failure domain, matching the Cluster API v1beta2
+                    clusterv1.FailureDomain type.
+                  properties:
+                    attributes:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        attributes is a free form map of attributes an infrastructure provider
+                        might use or require.
+                      type: object
+                    controlPlane:
+                      description: |-
+                        controlPlane determines if this failure domain is suitable for use by
+                        control plane machines.
+                      type: boolean
+                    name:
+                      description: 'name is the name of the failure domain: the name
+                        of a LibvirtHost.'
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 10000
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               initialization:
                 description: |-
                   initialization reports one-time provisioning milestones, as defined by

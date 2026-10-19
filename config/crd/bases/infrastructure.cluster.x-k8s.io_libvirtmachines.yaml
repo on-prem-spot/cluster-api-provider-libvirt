@@ -397,6 +397,14 @@ spec:
               domainUUID:
                 description: domainUUID is the UUID of the libvirt domain.
                 type: string
+              failureDomain:
+                description: |-
+                  failureDomain is the failure domain the machine runs in, as defined by
+                  the Cluster API v1beta2 InfraMachine contract. Failure domains are
+                  LibvirtHosts, so this is always spec.hostRef.name.
+                maxLength: 256
+                minLength: 1
+                type: string
               failureMessage:
                 description: failureMessage is a human-readable description of the
                   failure.

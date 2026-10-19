@@ -245,6 +245,9 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 		controllerutil.AddFinalizer(libvirtMachine, infrav1.MachineFinalizer)
 	}
 
+	// Each LibvirtHost is a failure domain, so the machine's is its host.
+	libvirtMachine.Status.FailureDomain = libvirtHost.Name
+
 	// Check LibvirtHost readiness.
 	if !libvirtHost.Status.Ready {
 		log.Info("LibvirtHost is not ready, requeueing", "host", libvirtHost.Name)

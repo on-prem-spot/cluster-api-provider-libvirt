@@ -316,6 +316,14 @@ type LibvirtMachineStatus struct {
 	// +optional
 	Initialization *LibvirtMachineInitializationStatus `json:"initialization,omitempty"`
 
+	// failureDomain is the failure domain the machine runs in, as defined by
+	// the Cluster API v1beta2 InfraMachine contract. Failure domains are
+	// LibvirtHosts, so this is always spec.hostRef.name.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	FailureDomain string `json:"failureDomain,omitempty"`
+
 	// addresses is the list of addresses assigned to the machine.
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
