@@ -1,0 +1,134 @@
+# CAPLV "direct-boot" flavor — `clusterctl generate cluster --flavor direct-boot`.
+#
+# Same shape as the default template (one explicitly placed Machine +
+# LibvirtMachine pair; duplicate the LibvirtHost / Machine / LibvirtMachine
+# blocks per extra node), but the LibvirtCluster sets spec.bootArtifacts.
+# Every machine in the cluster then first-boots via libvirt direct kernel
+# boot: the controller fetches the kernel and initramfs once over HTTPS,
+# caches them content-addressed under BOOT_ARTIFACTS_HOST_PATH on each
+# libvirt host, and hands ignition to the guest on a virtio-blk disk
+# (serial=ignition) instead of QEMU fw_cfg. This avoids the qemu_fw_cfg
+# driver's O(n²) reads, which add tens of seconds of first boot for
+# multi-MB ignition payloads. See "Fast first boot with bootArtifacts" in
+# README.md for the OCI and S3 transports, which are not templated here.
+#
+# Direct boot only changes ignition delivery, so this flavor fixes
+# bootstrapFormat to ignition.
+#
+# As with the default template, the SSH key Secret (LIBVIRT_HOST_SSH_SECRET)
+# and the bootstrap Secret (BOOTSTRAP_SECRET_NAME) must be created by hand.
+#
+# Variables (set via clusterctl --config or env):
+#   CLUSTER_NAME, NAMESPACE
+#   CONTROL_PLANE_ENDPOINT_HOST   (CONTROL_PLANE_ENDPOINT_PORT defaults to 6443)
+#   LIBVIRT_HOST_NAME, LIBVIRT_HOST_URI
+#   LIBVIRT_HOST_SSH_SECRET, LIBVIRT_HOST_SSH_FINGERPRINT
+#   BOOTSTRAP_SECRET_NAME
+#   BASE_IMAGE                    (qcow2 in the libvirt storage pool)
+#   CONTROL_PLANE_IP              (CIDR, e.g. 192.168.1.10/24)
+#   NETWORK_GATEWAY, NETWORK_DNS
+#   BOOT_KERNEL_URL               (https:// URL of the kernel, e.g. rhcos-live-kernel)
+#   BOOT_INITRAMFS_URL            (https:// URL of the matching initramfs)
+#
+# Optional (have defaults):
+#   SERVICE_CIDR, POD_CIDR, SERVICE_DOMAIN
+#   VCPUS, MEMORY_MB, ROOT_DISK_SIZE, STORAGE_POOL
+#   NETWORK_TYPE, NETWORK_NAME
+#   BOOT_ARTIFACTS_HOST_PATH      (cache dir on each host, default /var/lib/caplv/boot)
+#   BOOT_KERNEL_ARGS              (kernel cmdline; must point ignition at the
+#                                  virtio-ignition disk, see the default)
+#   BOOT_KERNEL_SHA256, BOOT_INITRAMFS_SHA256
+#                                 (hex digests of the decompressed artifacts;
+#                                  empty skips verification — set them for
+#                                  mutable URLs)
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: ${SERVICE_CIDR:=["10.96.0.0/12"]}
+    pods:
+      cidrBlocks: ${POD_CIDR:=["192.168.0.0/18"]}
+    serviceDomain: ${SERVICE_DOMAIN:="cluster.local"}
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtCluster
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtCluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  controlPlaneEndpoint:
+    host: ${CONTROL_PLANE_ENDPOINT_HOST}
+    port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
+  bootArtifacts:
+    hostPath: ${BOOT_ARTIFACTS_HOST_PATH:=/var/lib/caplv/boot}
+    kernelArgs: "${BOOT_KERNEL_ARGS:=ignition.platform.id=metal ignition.config.url=oem:/dev/disk/by-id/virtio-ignition console=ttyS0}"
+    source:
+      type: HTTPS
+      https:
+        kernelURL: ${BOOT_KERNEL_URL}
+        initramfsURL: ${BOOT_INITRAMFS_URL}
+        kernelSHA256: "${BOOT_KERNEL_SHA256:=}"
+        initramfsSHA256: "${BOOT_INITRAMFS_SHA256:=}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: ${LIBVIRT_HOST_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  uri: ${LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${LIBVIRT_HOST_SSH_FINGERPRINT}
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: ${CLUSTER_NAME}-cp-0
+  namespace: ${NAMESPACE}
+  labels:
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+    cluster.x-k8s.io/control-plane: ""
+spec:
+  clusterName: ${CLUSTER_NAME}
+  bootstrap:
+    dataSecretName: ${BOOTSTRAP_SECRET_NAME}
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtMachine
+    name: ${CLUSTER_NAME}-cp-0
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtMachine
+metadata:
+  name: ${CLUSTER_NAME}-cp-0
+  namespace: ${NAMESPACE}
+spec:
+  hostRef:
+    name: ${LIBVIRT_HOST_NAME}
+  domain:
+    vcpus: ${VCPUS:=4}
+    memoryMB: ${MEMORY_MB:=8192}
+  rootDisk:
+    baseImage: ${BASE_IMAGE}
+    storagePool: ${STORAGE_POOL:=default}
+    size: ${ROOT_DISK_SIZE:=100Gi}
+  network:
+    type: ${NETWORK_TYPE:=bridge}
+    name: ${NETWORK_NAME:=br0}
+    addresses:
+      - ${CONTROL_PLANE_IP}
+    gateway: ${NETWORK_GATEWAY}
+    dns:
+      nameservers:
+        - ${NETWORK_DNS}
+  bootstrapFormat: ignition

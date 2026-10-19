@@ -1,0 +1,131 @@
+# CAPLV "session-mode" flavor — `clusterctl generate cluster --flavor session-mode`.
+#
+# Same shape as the default template (one explicitly placed Machine +
+# LibvirtMachine pair; duplicate the LibvirtHost / Machine / LibvirtMachine
+# blocks per extra node), but the LibvirtHost talks to the SSH user's
+# unprivileged per-user libvirt daemon (qemu+ssh://.../session) instead of
+# the root-owned system daemon. QEMU then runs as the service account.
+#
+# The host must be prepared for session mode first (README, "Session mode
+# (unprivileged libvirt)"):
+#
+#   ansible-playbook -i <host>, -u root deploy/ansible/setup-host.yaml \
+#     -e libvirt_mode=session -e '{"session_allowed_bridges": ["br0"]}'
+#
+# The LibvirtHost health probe marks a half-configured host Ready=false with
+# reason SessionModeMisconfigured.
+#
+# Session-mode constraints this template bakes in:
+#   - The URI is assembled here so its path is always /session.
+#   - network.type is fixed to bridge. Libvirt-managed networks
+#     (network.type: network) need the system daemon, and the machine
+#     controller fails such a machine with NetworkTypeUnsupported.
+#     NETWORK_NAME must be a host bridge whitelisted in /etc/qemu/bridge.conf
+#     (the playbook's session_allowed_bridges), because attachment goes
+#     through the setuid qemu-bridge-helper.
+#   - STORAGE_POOL defaults to "default", the pool the playbook defines in
+#     the session daemon under ~caplv/.local/share/libvirt/images; the base
+#     image must be staged there, not in the system daemon's pool.
+#
+# As with the default template, the SSH key Secret (LIBVIRT_HOST_SSH_SECRET)
+# and the bootstrap Secret (BOOTSTRAP_SECRET_NAME) must be created by hand.
+#
+# Variables (set via clusterctl --config or env):
+#   CLUSTER_NAME, NAMESPACE
+#   CONTROL_PLANE_ENDPOINT_HOST   (CONTROL_PLANE_ENDPOINT_PORT defaults to 6443)
+#   LIBVIRT_HOST_NAME             (the LibvirtHost CR name)
+#   LIBVIRT_HOST_ADDRESS          (hostname or IP the controller SSHes to)
+#   LIBVIRT_HOST_SSH_SECRET, LIBVIRT_HOST_SSH_FINGERPRINT
+#   BOOTSTRAP_SECRET_NAME
+#   BASE_IMAGE                    (qcow2 in the session storage pool)
+#   CONTROL_PLANE_IP              (CIDR, e.g. 192.168.1.10/24)
+#   NETWORK_GATEWAY, NETWORK_DNS
+#
+# Optional (have defaults):
+#   SERVICE_CIDR, POD_CIDR, SERVICE_DOMAIN
+#   LIBVIRT_SSH_USER              (service account, default caplv)
+#   VCPUS, MEMORY_MB, ROOT_DISK_SIZE, STORAGE_POOL
+#   NETWORK_NAME                  (whitelisted bridge, default br0)
+#   BOOTSTRAP_FORMAT
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: ${SERVICE_CIDR:=["10.96.0.0/12"]}
+    pods:
+      cidrBlocks: ${POD_CIDR:=["192.168.0.0/18"]}
+    serviceDomain: ${SERVICE_DOMAIN:="cluster.local"}
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtCluster
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtCluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  controlPlaneEndpoint:
+    host: ${CONTROL_PLANE_ENDPOINT_HOST}
+    port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: ${LIBVIRT_HOST_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  uri: qemu+ssh://${LIBVIRT_SSH_USER:=caplv}@${LIBVIRT_HOST_ADDRESS}/session
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${LIBVIRT_HOST_SSH_FINGERPRINT}
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: ${CLUSTER_NAME}-cp-0
+  namespace: ${NAMESPACE}
+  labels:
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+    cluster.x-k8s.io/control-plane: ""
+spec:
+  clusterName: ${CLUSTER_NAME}
+  bootstrap:
+    dataSecretName: ${BOOTSTRAP_SECRET_NAME}
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtMachine
+    name: ${CLUSTER_NAME}-cp-0
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtMachine
+metadata:
+  name: ${CLUSTER_NAME}-cp-0
+  namespace: ${NAMESPACE}
+spec:
+  hostRef:
+    name: ${LIBVIRT_HOST_NAME}
+  domain:
+    vcpus: ${VCPUS:=4}
+    memoryMB: ${MEMORY_MB:=8192}
+  rootDisk:
+    baseImage: ${BASE_IMAGE}
+    storagePool: ${STORAGE_POOL:=default}
+    size: ${ROOT_DISK_SIZE:=100Gi}
+  network:
+    # Session mode supports bridge attachment only (via qemu-bridge-helper).
+    type: bridge
+    name: ${NETWORK_NAME:=br0}
+    addresses:
+      - ${CONTROL_PLANE_IP}
+    gateway: ${NETWORK_GATEWAY}
+    dns:
+      nameservers:
+        - ${NETWORK_DNS}
+  bootstrapFormat: ${BOOTSTRAP_FORMAT:=ignition}

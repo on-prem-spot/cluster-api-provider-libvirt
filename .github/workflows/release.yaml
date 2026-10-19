@@ -102,7 +102,9 @@ jobs:
           mkdir -p release-manifests
           cp dist/infrastructure-components.yaml release-manifests/
           cp metadata.yaml release-manifests/
-          cp templates/cluster-template.yaml release-manifests/
+          # clusterctl looks up flavors as cluster-template-<flavor>.yaml and
+          # ClusterClasses as clusterclass-<name>.yaml among the release assets.
+          cp templates/cluster-template*.yaml templates/clusterclass-*.yaml release-manifests/
 
       - name: Upload release manifests
         uses: actions/upload-artifact@v4
@@ -130,7 +132,7 @@ jobs:
         id: hash
         run: |
           cd artifacts
-          sha256sum infrastructure-components.yaml metadata.yaml cluster-template.yaml > checksums.txt
+          sha256sum infrastructure-components.yaml metadata.yaml cluster-template*.yaml clusterclass-*.yaml > checksums.txt
           cat checksums.txt
           echo "hashes=$(cat checksums.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
 
@@ -210,9 +212,11 @@ jobs:
           if [ -f "release-manifests/metadata.yaml" ]; then
             cp release-manifests/metadata.yaml release/
           fi
-          if [ -f "release-manifests/cluster-template.yaml" ]; then
-            cp release-manifests/cluster-template.yaml release/
-          fi
+          for f in release-manifests/cluster-template*.yaml release-manifests/clusterclass-*.yaml; do
+            if [ -f "$f" ]; then
+              cp "$f" release/
+            fi
+          done
 
           # Copy Docker SBOM
           if [ -d "docker-sbom" ] && [ -f "docker-sbom/docker-sbom.json" ]; then
@@ -256,7 +260,8 @@ jobs:
           files: |
             artifacts/release/infrastructure-components.yaml
             artifacts/release/metadata.yaml
-            artifacts/release/cluster-template.yaml
+            artifacts/release/cluster-template*.yaml
+            artifacts/release/clusterclass-*.yaml
             artifacts/sboms/*
             artifacts/provenance/*.intoto.jsonl
             artifacts/release/checksums.sha256
