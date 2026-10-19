@@ -67,10 +67,9 @@ spec:
     host: "api.my-ocp-cluster.example.com"
     port: 6443
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: my-ocp-cluster
-    namespace: default
 ```
 
 **3. Create a LibvirtCluster resource** (CAPLV reports ready once the endpoint

@@ -64,7 +64,7 @@ fi
 
 MANIFESTS=$(cat <<EOF
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
   name: ${CLUSTER_NAME}
@@ -74,7 +74,7 @@ spec:
     host: ${CONTROL_PLANE_HOST}
     port: ${CONTROL_PLANE_PORT}
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: ${CLUSTER_NAME}
 ---
