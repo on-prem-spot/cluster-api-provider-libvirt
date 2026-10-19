@@ -20,6 +20,9 @@ import (
 	"context"
 	"testing"
 
+	admissionv1 "k8s.io/api/admission/v1"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
@@ -101,5 +104,25 @@ func TestDefaultedMachineStillValidates(t *testing.T) {
 	v := &LibvirtMachineCustomValidator{}
 	if _, err := v.ValidateCreate(context.Background(), obj); err != nil {
 		t.Errorf("defaulted machine failed validation: %v", err)
+	}
+}
+
+// A machine stored before defaulting existed carries an empty baseImagePool.
+// Updating it (e.g. the controller adding its finalizer) must not trip the
+// immutable-spec check.
+func TestDefaultSkipsUpdateOfUndefaultedMachine(t *testing.T) {
+	old := &infrav1.LibvirtMachine{Spec: testMachineSpec()}
+	old.Spec.RootDisk.BaseImagePool = ""
+	updated := old.DeepCopy()
+	updated.Finalizers = []string{infrav1.MachineFinalizer}
+
+	ctx := admission.NewContextWithRequest(context.Background(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Update},
+	})
+	if err := (&LibvirtMachineCustomDefaulter{}).Default(ctx, updated); err != nil {
+		t.Fatalf("defaulting failed: %v", err)
+	}
+	if _, err := (&LibvirtMachineCustomValidator{}).ValidateUpdate(ctx, old, updated); err != nil {
+		t.Errorf("update of undefaulted machine rejected: %v", err)
 	}
 }
