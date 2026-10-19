@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -85,6 +86,10 @@ func TestClusterReadiness(t *testing.T) {
 			}
 			if got.Status.Ready != tc.ready {
 				t.Fatalf("ready=%v, want %v", got.Status.Ready, tc.ready)
+			}
+			provisioned := got.Status.Initialization != nil && ptr.Deref(got.Status.Initialization.Provisioned, false)
+			if provisioned != tc.ready {
+				t.Fatalf("initialization.provisioned=%v, want %v", provisioned, tc.ready)
 			}
 			if tc.paused || tc.external || tc.deleting {
 				if len(got.Status.Conditions) != 0 {

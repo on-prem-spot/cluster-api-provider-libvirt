@@ -347,11 +347,28 @@ type LibvirtClusterStatus struct {
 	// +optional
 	Ready bool `json:"ready,omitempty"`
 
+	// initialization reports one-time provisioning milestones, as defined by
+	// the Cluster API v1beta2 InfraCluster contract. Cluster API releases that
+	// use the v1beta2 contract read initialization.provisioned instead of
+	// ready; both are set.
+	// +optional
+	Initialization *LibvirtClusterInitializationStatus `json:"initialization,omitempty"`
+
 	// conditions represent the current state of the LibvirtCluster resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// LibvirtClusterInitializationStatus reports one-time provisioning milestones
+// of a LibvirtCluster.
+// +kubebuilder:validation:MinProperties=1
+type LibvirtClusterInitializationStatus struct {
+	// provisioned is true once the cluster infrastructure is ready for the
+	// control plane. Once true it is never set back to false.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // +kubebuilder:object:root=true

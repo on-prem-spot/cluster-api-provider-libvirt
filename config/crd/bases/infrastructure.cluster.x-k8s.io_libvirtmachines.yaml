@@ -405,6 +405,20 @@ spec:
                 description: failureReason is a machine-readable string indicating
                   the reason for a failure.
                 type: string
+              initialization:
+                description: |-
+                  initialization reports one-time provisioning milestones, as defined by
+                  the Cluster API v1beta2 InfraMachine contract. Cluster API releases that
+                  use the v1beta2 contract read initialization.provisioned instead of
+                  ready; both are set.
+                minProperties: 1
+                properties:
+                  provisioned:
+                    description: |-
+                      provisioned is true once the domain has been created and started.
+                      Once true it is never set back to false.
+                    type: boolean
+                type: object
               managedArtifacts:
                 description: managedArtifacts tracks the libvirt artifacts managed
                   by the controller.

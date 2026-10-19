@@ -524,6 +524,20 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              initialization:
+                description: |-
+                  initialization reports one-time provisioning milestones, as defined by
+                  the Cluster API v1beta2 InfraCluster contract. Cluster API releases that
+                  use the v1beta2 contract read initialization.provisioned instead of
+                  ready; both are set.
+                minProperties: 1
+                properties:
+                  provisioned:
+                    description: |-
+                      provisioned is true once the cluster infrastructure is ready for the
+                      control plane. Once true it is never set back to false.
+                    type: boolean
+                type: object
               ready:
                 description: ready indicates whether the cluster infrastructure is
                   ready.

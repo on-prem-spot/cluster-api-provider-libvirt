@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -132,6 +133,9 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		prevStatus = previous.Status
 	}
 	libvirtCluster.Status.Ready = ready
+	if ready {
+		libvirtCluster.Status.Initialization = &infrav1.LibvirtClusterInitializationStatus{Provisioned: ptr.To(true)}
+	}
 	apimeta.SetStatusCondition(&libvirtCluster.Status.Conditions, condition)
 	if prevStatus != condition.Status {
 		eventType := corev1.EventTypeNormal
