@@ -1026,11 +1026,16 @@ not a tested support range; release tags must be checked independently.
 
 | CAPLV revision | Cluster API | Kubernetes | libvirt / QEMU |
 | --- | --- | --- | --- |
-| Development (`main`) | Built against CAPI v1.9.11; imports the v1beta1 API and transitional metav1 condition utilities | Kubernetes Go libraries v0.35.0; `make test` selects envtest 1.35 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
+| Development (`main`) | Requires a CAPI core that implements the v1beta2 contract (v1.11 or later). Built against the CAPI v1.9.11 Go module; imports the v1beta1 API and transitional metav1 condition utilities | Kubernetes Go libraries v0.35.0; `make test` selects envtest 1.35 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
 
 `metadata.yaml` advertises the v1beta2 contract for the 0.1 and 0.2 release
-series. That declaration alone does not establish full contract compliance or
-ClusterClass support. Machine templates, host/IP allocation for scaling, and
+series, and the CRDs carry only the `cluster.x-k8s.io/v1beta2` contract label.
+Status fields such as `initialization.provisioned` and the list-shaped
+`failureDomains` follow v1beta2, so CAPI releases that only implement the
+v1beta1 contract (v1.10 and earlier) are not supported. That declaration
+alone does not establish full contract compliance or ClusterClass support;
+see [ADR 0003](docs/adr/0003-api-version-promotion.md) for the remaining gaps
+and the promotion plan. Machine templates, host/IP allocation for scaling, and
 end-to-end lifecycle coverage remain open work. This tree's versions must not
 be read as verified compatibility for previously released binaries.
 
