@@ -1,0 +1,129 @@
+# CAPLV "ephemeral" flavor — `clusterctl generate cluster --flavor ephemeral`.
+#
+# Same shape as the default template (one explicitly placed Machine +
+# LibvirtMachine pair; duplicate the LibvirtHost / Machine / LibvirtMachine
+# blocks per extra node), but the root disk lives in RAM: with
+# rootDisk.ephemeralPool: true CAPLV creates a per-machine tmpfs mount under
+# /run/caplv/ plus a libvirt pool named <namespace>-<cluster>-<machine>-pool
+# when the VM is provisioned, places the root disk (and any cloud-init ISO)
+# there, and tears both down when the VM is deleted. The host's persistent
+# storage is never written to, and the RAM is only held while the VM exists.
+# See "Ephemeral storage with tmpfs" and "Storage Pools" in README.md.
+#
+# The base image is still read from a persistent pool (BASE_IMAGE_POOL);
+# the overlay is copy-on-write against it. STORAGE_POOL is a required field
+# of the API but is not used as the disk target in this mode.
+#
+# Size the tmpfs with EPHEMERAL_POOL_SIZE (a percentage of host RAM such as
+# "80%", or an absolute size such as "16G"). The root disk's working set,
+# not ROOT_DISK_SIZE, is what consumes RAM, but it must fit alongside the
+# VM's own MEMORY_MB on the host.
+#
+# As with the default template, the SSH key Secret (LIBVIRT_HOST_SSH_SECRET)
+# and the bootstrap Secret (BOOTSTRAP_SECRET_NAME) must be created by hand.
+#
+# Variables (set via clusterctl --config or env):
+#   CLUSTER_NAME, NAMESPACE
+#   CONTROL_PLANE_ENDPOINT_HOST   (CONTROL_PLANE_ENDPOINT_PORT defaults to 6443)
+#   LIBVIRT_HOST_NAME, LIBVIRT_HOST_URI
+#   LIBVIRT_HOST_SSH_SECRET, LIBVIRT_HOST_SSH_FINGERPRINT
+#   BOOTSTRAP_SECRET_NAME
+#   BASE_IMAGE                    (qcow2 in BASE_IMAGE_POOL)
+#   CONTROL_PLANE_IP              (CIDR, e.g. 192.168.1.10/24)
+#   NETWORK_GATEWAY, NETWORK_DNS
+#
+# Optional (have defaults):
+#   SERVICE_CIDR, POD_CIDR, SERVICE_DOMAIN
+#   VCPUS, MEMORY_MB, ROOT_DISK_SIZE
+#   BASE_IMAGE_POOL               (persistent pool holding BASE_IMAGE, default "default")
+#   STORAGE_POOL                  (required by the API, unused as disk target; default "default")
+#   EPHEMERAL_POOL_SIZE           (tmpfs size= cap, default 50% — the kernel default)
+#   NETWORK_TYPE, NETWORK_NAME, BOOTSTRAP_FORMAT
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: ${SERVICE_CIDR:=["10.96.0.0/12"]}
+    pods:
+      cidrBlocks: ${POD_CIDR:=["192.168.0.0/18"]}
+    serviceDomain: ${SERVICE_DOMAIN:="cluster.local"}
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtCluster
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtCluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  controlPlaneEndpoint:
+    host: ${CONTROL_PLANE_ENDPOINT_HOST}
+    port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: ${LIBVIRT_HOST_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  uri: ${LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${LIBVIRT_HOST_SSH_FINGERPRINT}
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: ${CLUSTER_NAME}-cp-0
+  namespace: ${NAMESPACE}
+  labels:
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+    cluster.x-k8s.io/control-plane: ""
+spec:
+  clusterName: ${CLUSTER_NAME}
+  bootstrap:
+    dataSecretName: ${BOOTSTRAP_SECRET_NAME}
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtMachine
+    name: ${CLUSTER_NAME}-cp-0
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtMachine
+metadata:
+  name: ${CLUSTER_NAME}-cp-0
+  namespace: ${NAMESPACE}
+spec:
+  hostRef:
+    name: ${LIBVIRT_HOST_NAME}
+  domain:
+    vcpus: ${VCPUS:=4}
+    memoryMB: ${MEMORY_MB:=8192}
+  rootDisk:
+    baseImage: ${BASE_IMAGE}
+    baseImagePool: ${BASE_IMAGE_POOL:=default}
+    # Required by the API; not used as the disk target when ephemeralPool is true.
+    storagePool: ${STORAGE_POOL:=default}
+    size: ${ROOT_DISK_SIZE:=100Gi}
+    ephemeralPool: true
+    ephemeralPoolSize: "${EPHEMERAL_POOL_SIZE:=50%}"
+    # full-clone cannot cross pools; the overlay is copy-on-write against
+    # the persistent base image.
+    cloneStrategy: copy-on-write
+  network:
+    type: ${NETWORK_TYPE:=bridge}
+    name: ${NETWORK_NAME:=br0}
+    addresses:
+      - ${CONTROL_PLANE_IP}
+    gateway: ${NETWORK_GATEWAY}
+    dns:
+      nameservers:
+        - ${NETWORK_DNS}
+  bootstrapFormat: ${BOOTSTRAP_FORMAT:=ignition}

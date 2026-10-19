@@ -65,6 +65,9 @@ type LibvirtHostReconciler struct {
 	SSHClientFactory     SSHClientFactory
 	LibvirtClientFactory LibvirtClientFactory
 	Recorder             events.EventRecorder
+	// WatchFilterValue, when non-empty, restricts reconciliation to objects
+	// labelled cluster.x-k8s.io/watch-filter=<value>.
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch;create;update;patch;delete
@@ -318,7 +321,10 @@ func healthCheckIntervalForHost(host *infrav1.LibvirtHost) time.Duration {
 // SetupWithManager sets up the controller with the Manager.
 func (r *LibvirtHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtHost{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
+		For(&infrav1.LibvirtHost{}, builder.WithPredicates(
+			predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()),
+			predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue),
+		)).
 		// Re-reconcile the host when a LibvirtMachine referencing it is created or deleted.
 		// This starts/stops health check monitoring based on active machines.
 		Watches(&infrav1.LibvirtMachine{}, handler.EnqueueRequestsFromMapFunc(
@@ -334,7 +340,7 @@ func (r *LibvirtHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					},
 				}}
 			},
-		)).
+		), builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
 		Named("libvirthost").
 		Complete(r)
 }

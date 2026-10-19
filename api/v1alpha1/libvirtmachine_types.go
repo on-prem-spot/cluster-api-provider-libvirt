@@ -309,6 +309,21 @@ type LibvirtMachineStatus struct {
 	// +optional
 	Ready bool `json:"ready,omitempty"`
 
+	// initialization reports one-time provisioning milestones, as defined by
+	// the Cluster API v1beta2 InfraMachine contract. Cluster API releases that
+	// use the v1beta2 contract read initialization.provisioned instead of
+	// ready; both are set.
+	// +optional
+	Initialization *LibvirtMachineInitializationStatus `json:"initialization,omitempty"`
+
+	// failureDomain is the failure domain the machine runs in, as defined by
+	// the Cluster API v1beta2 InfraMachine contract. Failure domains are
+	// LibvirtHosts, so this is always spec.hostRef.name.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	FailureDomain string `json:"failureDomain,omitempty"`
+
 	// addresses is the list of addresses assigned to the machine.
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
@@ -338,6 +353,16 @@ type LibvirtMachineStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// LibvirtMachineInitializationStatus reports one-time provisioning milestones
+// of a LibvirtMachine.
+// +kubebuilder:validation:MinProperties=1
+type LibvirtMachineInitializationStatus struct {
+	// provisioned is true once the domain has been created and started.
+	// Once true it is never set back to false.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // +kubebuilder:object:root=true

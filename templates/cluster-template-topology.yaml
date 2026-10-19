@@ -1,0 +1,119 @@
+# CAPLV "topology" flavor — `clusterctl generate cluster --flavor topology`.
+#
+# A ClusterClass-based cluster: the Cluster below names the
+# "libvirt-kubeadm" ClusterClass, which clusterctl fetches from
+# clusterclass-libvirt-kubeadm.yaml and includes in the output when the
+# target namespace does not already have it. Read that file's header first;
+# in short:
+#
+#   - ClusterClass requires a control plane provider and bootstrap templates,
+#     so unlike the default flavor this one builds a NEW workload cluster with
+#     the core CAPI kubeadm providers (KubeadmControlPlane + KubeadmConfig)
+#     on cloud-init guests. Install them with
+#     `clusterctl init --infrastructure libvirt --control-plane kubeadm
+#     --bootstrap kubeadm` (the defaults) and enable the ClusterTopology
+#     feature gate (CLUSTER_TOPOLOGY=true) if your CAPI version still gates it.
+#   - CAPLV cannot allocate hosts or IPs, so the control plane and the
+#     worker each get one LibvirtHost and one static address, and both
+#     replicas counts must stay at 1.
+#   - BASE_IMAGE must be a cloud-init qcow2 with kubeadm/kubelet/containerd
+#     matching KUBERNETES_VERSION (e.g. an image-builder qemu EFI build),
+#     staged in STORAGE_POOL on both hosts.
+#
+# The control plane endpoint has no load balancer in front of it: with one
+# control plane machine, CONTROL_PLANE_ENDPOINT_HOST is normally
+# CONTROL_PLANE_IP without its prefix length.
+#
+# Not generated (secret material): the Secret referenced by
+# LIBVIRT_HOST_SSH_SECRET, holding the SSH private key for both hosts.
+# Bootstrap data comes from the kubeadm bootstrap provider.
+#
+# Variables (set via clusterctl --config or env):
+#   CLUSTER_NAME, NAMESPACE, KUBERNETES_VERSION
+#   CONTROL_PLANE_ENDPOINT_HOST   (CONTROL_PLANE_ENDPOINT_PORT defaults to 6443)
+#   CONTROL_PLANE_LIBVIRT_HOST    (LibvirtHost CR name for the control plane VM)
+#   CONTROL_PLANE_LIBVIRT_HOST_URI, CONTROL_PLANE_LIBVIRT_HOST_SSH_FINGERPRINT
+#   WORKER_LIBVIRT_HOST           (LibvirtHost CR name for the worker VM; must
+#                                  differ from the control plane host)
+#   WORKER_LIBVIRT_HOST_URI, WORKER_LIBVIRT_HOST_SSH_FINGERPRINT
+#   LIBVIRT_HOST_SSH_SECRET       (SSH private key Secret used for both hosts)
+#   CONTROL_PLANE_IP, WORKER_IP   (CIDR, e.g. 192.168.1.10/24)
+#   NETWORK_GATEWAY, NETWORK_DNS
+#   BASE_IMAGE                    (cloud-init qcow2 in STORAGE_POOL)
+#
+# Optional (have defaults):
+#   SERVICE_CIDR, POD_CIDR, SERVICE_DOMAIN
+#   NETWORK_TYPE, NETWORK_NAME, STORAGE_POOL, ROOT_DISK_SIZE
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: ${SERVICE_CIDR:=["10.96.0.0/12"]}
+    pods:
+      cidrBlocks: ${POD_CIDR:=["192.168.0.0/18"]}
+    serviceDomain: ${SERVICE_DOMAIN:="cluster.local"}
+  topology:
+    classRef:
+      name: libvirt-kubeadm
+    version: ${KUBERNETES_VERSION}
+    controlPlane:
+      # One VM per LibvirtHost and one static address per role: keep at 1.
+      replicas: 1
+    workers:
+      machineDeployments:
+        - class: default-worker
+          name: md-0
+          # One VM per LibvirtHost and one static address per role: keep at 1.
+          replicas: 1
+    variables:
+      - name: controlPlaneEndpoint
+        value:
+          host: ${CONTROL_PLANE_ENDPOINT_HOST}
+          port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
+      - name: controlPlaneMachine
+        value:
+          hostRef: ${CONTROL_PLANE_LIBVIRT_HOST}
+          address: ${CONTROL_PLANE_IP}
+      - name: workerMachine
+        value:
+          hostRef: ${WORKER_LIBVIRT_HOST}
+          address: ${WORKER_IP}
+      - name: network
+        value:
+          type: ${NETWORK_TYPE:=bridge}
+          name: ${NETWORK_NAME:=br0}
+          gateway: ${NETWORK_GATEWAY}
+          nameservers:
+            - ${NETWORK_DNS}
+      - name: rootDisk
+        value:
+          baseImage: ${BASE_IMAGE}
+          storagePool: ${STORAGE_POOL:=default}
+          size: ${ROOT_DISK_SIZE:=50Gi}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: ${CONTROL_PLANE_LIBVIRT_HOST}
+  namespace: ${NAMESPACE}
+spec:
+  uri: ${CONTROL_PLANE_LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${CONTROL_PLANE_LIBVIRT_HOST_SSH_FINGERPRINT}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: ${WORKER_LIBVIRT_HOST}
+  namespace: ${NAMESPACE}
+spec:
+  uri: ${WORKER_LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${WORKER_LIBVIRT_HOST_SSH_FINGERPRINT}

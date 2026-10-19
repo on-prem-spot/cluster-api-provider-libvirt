@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -85,6 +86,10 @@ func TestClusterReadiness(t *testing.T) {
 			}
 			if got.Status.Ready != tc.ready {
 				t.Fatalf("ready=%v, want %v", got.Status.Ready, tc.ready)
+			}
+			provisioned := got.Status.Initialization != nil && ptr.Deref(got.Status.Initialization.Provisioned, false)
+			if provisioned != tc.ready {
+				t.Fatalf("initialization.provisioned=%v, want %v", provisioned, tc.ready)
 			}
 			if tc.paused || tc.external || tc.deleting {
 				if len(got.Status.Conditions) != 0 {
@@ -150,5 +155,67 @@ func TestExternallyManagedResourcesAreUntouched(t *testing.T) {
 		if err != nil || !result.IsZero() {
 			t.Fatalf("external resource reconciled: %+v, %v", result, err)
 		}
+	}
+}
+
+func TestClusterReportsHostsAsFailureDomains(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := infrav1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := clusterv1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	owner := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "default"}}
+	obj := &infrav1.LibvirtCluster{ObjectMeta: metav1.ObjectMeta{Name: "infra", Namespace: "default", OwnerReferences: []metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: "Cluster", Name: owner.Name}}}}
+	now := metav1.Now()
+	hosts := []client.Object{
+		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-a", Namespace: "default"}},
+		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-b", Namespace: "default",
+			Labels: map[string]string{clusterv1.WatchLabel: "other"}}},
+		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-gone", Namespace: "default",
+			DeletionTimestamp: &now, Finalizers: []string{infrav1.HostFinalizer}}},
+		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-elsewhere", Namespace: "other"}},
+	}
+
+	for _, tc := range []struct {
+		filter string
+		want   []string
+	}{
+		{filter: "", want: []string{"host-a", "host-b"}},
+		{filter: "other", want: []string{"host-b"}},
+	} {
+		c := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(obj).WithObjects(append(hosts, owner, obj.DeepCopy())...).Build()
+		r := &LibvirtClusterReconciler{Client: c, Scheme: s, WatchFilterValue: tc.filter}
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}); err != nil {
+			t.Fatal(err)
+		}
+		got := &infrav1.LibvirtCluster{}
+		if err := c.Get(context.Background(), client.ObjectKeyFromObject(obj), got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Status.FailureDomains) != len(tc.want) {
+			t.Fatalf("filter %q: failureDomains=%v, want %v", tc.filter, got.Status.FailureDomains, tc.want)
+		}
+		for i, name := range tc.want {
+			fd := got.Status.FailureDomains[i]
+			if fd.Name != name || !ptr.Deref(fd.ControlPlane, false) {
+				t.Errorf("filter %q: failure domain %d = %+v, want control-plane eligible %q", tc.filter, i, fd, name)
+			}
+		}
+	}
+}
+
+func TestMachineReportsHostAsFailureDomain(t *testing.T) {
+	lm := &infrav1.LibvirtMachine{ObjectMeta: metav1.ObjectMeta{Name: "worker01", Namespace: "default"},
+		Spec: infrav1.LibvirtMachineSpec{HostRef: corev1.LocalObjectReference{Name: "host-a"}}}
+	host := &infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-a", Namespace: "default"}}
+	r := &LibvirtMachineReconciler{}
+	// An unready host returns before any connection is attempted.
+	if _, err := r.reconcileNormal(context.Background(), lm, &clusterv1.Machine{}, &clusterv1.Cluster{}, &infrav1.LibvirtCluster{}, host); err != nil {
+		t.Fatal(err)
+	}
+	if lm.Status.FailureDomain != "host-a" {
+		t.Errorf("status.failureDomain = %q, want host-a", lm.Status.FailureDomain)
 	}
 }

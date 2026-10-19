@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# Copyright 2026 Anthony Green.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # deploy.sh — Deploy the full CAPLV stack (5-Spot + capi-bootstrap-ignition + CAPLV)
 #
 # Usage:
@@ -152,10 +166,12 @@ apply_fivespot() {
     content=$(cat "$file")
 
     # Always patch image
-    content=$(echo "$content" | sed "s|ghcr.io/RBC/5-spot:latest|${FIVESPOT_IMG}|g")
+    content=${content//"ghcr.io/RBC/5-spot:latest"/"${FIVESPOT_IMG}"}
 
     # Fix DNS-1035 names if needed
     if [[ "$FIVESPOT_DNS_FIXUP" == "1" ]]; then
+        # sed is needed for the \b word boundary, which ${var//} cannot express.
+        # shellcheck disable=SC2001
         content=$(echo "$content" | sed 's/\bname: 5spot-/name: fivespot-/g')
     fi
 

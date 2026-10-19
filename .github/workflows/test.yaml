@@ -1,0 +1,65 @@
+name: Test
+
+# Reusable workflow: unit tests, then e2e tests on Kind. Called by ci.yaml
+# (pull requests and main) and release.yaml (tags) so that the image is only
+# built and pushed after both pass.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build and unit test.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: |
+          go mod tidy
+          make build
+
+      - name: Run unit tests
+        run: make test
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # E2E tests.
+  # ─────────────────────────────────────────────────────────────────────────────
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Run E2E tests
+        run: |
+          go mod tidy
+          make test-e2e
+        env:
+          CONTAINER_TOOL: docker

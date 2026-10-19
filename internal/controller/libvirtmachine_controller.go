@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -92,6 +93,9 @@ type LibvirtMachineReconciler struct {
 	// Each reconcile targets a different libvirt host over its own SSH connection.
 	// Default: 50.
 	MaxConcurrentReconciles int
+	// WatchFilterValue, when non-empty, restricts reconciliation to objects
+	// labelled cluster.x-k8s.io/watch-filter=<value>.
+	WatchFilterValue string
 
 	artifactCache sync.Map
 
@@ -240,6 +244,9 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 	if !controllerutil.ContainsFinalizer(libvirtMachine, infrav1.MachineFinalizer) {
 		controllerutil.AddFinalizer(libvirtMachine, infrav1.MachineFinalizer)
 	}
+
+	// Each LibvirtHost is a failure domain, so the machine's is its host.
+	libvirtMachine.Status.FailureDomain = libvirtHost.Name
 
 	// Check LibvirtHost readiness.
 	if !libvirtHost.Status.Ready {
@@ -411,6 +418,7 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 	libvirtMachine.Status.DomainState = domainInfo.State
 	libvirtMachine.Status.DomainUUID = domainInfo.UUID
 	libvirtMachine.Status.Ready = true
+	libvirtMachine.Status.Initialization = &infrav1.LibvirtMachineInitializationStatus{Provisioned: ptr.To(true)}
 
 	apimeta.SetStatusCondition(&libvirtMachine.Status.Conditions, metav1.Condition{
 		Type:               infrav1.InfrastructureReadyCondition,
@@ -1811,11 +1819,15 @@ func (r *LibvirtMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.LibvirtMachine{}, builder.WithPredicates(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()))).
+		For(&infrav1.LibvirtMachine{}, builder.WithPredicates(
+			predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), mgr.GetLogger()),
+			predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue),
+		)).
 		Watches(&clusterv1.Machine{}, handler.EnqueueRequestsFromMapFunc(
 			util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("LibvirtMachine")),
-		)).
-		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(clusterToMachines)).
+		), builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
+		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(clusterToMachines),
+			builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
 		Named("libvirtmachine").
 		Complete(r)

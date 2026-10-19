@@ -225,6 +225,10 @@ image for an OCP 4.21 cluster). Download from
 | **LibvirtHost** | Reusable connection details for a libvirt hypervisor (URI, SSH key, OVMF paths, reserved resources). Discovers host capacity via `virsh nodeinfo`. Health-checked only while machines are active. |
 | **LibvirtCluster** | CAPI contract resource — reports ready when the control plane endpoint is configured. No infrastructure provisioned. |
 | **LibvirtMachine** | Core resource — a single KVM VM with static IP, UEFI firmware, and ignition or cloud-init bootstrap. VM size can be auto-derived from host capacity. One per host (webhook-enforced). |
+| **LibvirtMachineTemplate** / **LibvirtClusterTemplate** | Inert templates that MachineDeployments, control plane providers and ClusterClass stamp LibvirtMachines / LibvirtClusters from. |
+
+The [API reference](docs/api-reference/v1alpha1.md) lists every field, default
+and validation rule. It is generated from `api/v1alpha1` with `make api-docs`.
 
 ## Example
 
@@ -743,6 +747,83 @@ This is the safety net for the known limitation that CAPLV does not
 monitor VM health after provisioning. Without it, dead VMs leave orphaned
 Node objects in the cluster.
 
+### Running multiple provider instances (`--watch-filter`)
+
+Several CAPLV managers can share one management cluster, each owning a
+subset of objects. Start each manager with `--watch-filter=<value>` and
+label every object it should own — `Cluster`, `Machine`, `LibvirtCluster`,
+`LibvirtMachine` and `LibvirtHost` — with
+`cluster.x-k8s.io/watch-filter: <value>`. A manager ignores objects whose
+label does not match, and its CSR approver only approves CSRs for nodes
+backed by a matching `LibvirtMachine`. Without the flag, a manager
+reconciles everything.
+
+### Feature gates
+
+New, experimental behaviour ships behind a feature gate, enabled per
+manager with `--feature-gates=Name=true[,Other=false]`. Gates are declared in
+`feature/feature.go`. There are none yet; features that shipped before the
+framework existed, such as session mode and ephemeral storage, stay ungated.
+
+### Failure domains
+
+Each `LibvirtHost` is a failure domain. `LibvirtCluster.status.failureDomains`
+lists every host in the cluster's namespace (except hosts being deleted),
+all marked control-plane eligible, and CAPI copies the list to
+`Cluster.status.failureDomains`. Each `LibvirtMachine` reports its host in
+`status.failureDomain`, which CAPI copies to `Machine.status.failureDomain`.
+Both fields use the CAPI v1beta2 contract shapes. Placement is still chosen
+by `spec.hostRef`. CAPLV does not yet assign hosts from a failure domain
+chosen by CAPI.
+
+## Cluster Templates (clusterctl flavors)
+
+`templates/` holds the cluster templates published with each release, for
+`clusterctl generate cluster`:
+
+```bash
+clusterctl generate cluster my-cluster --infrastructure libvirt \
+  --flavor ephemeral > my-cluster.yaml   # omit --flavor for the default
+clusterctl generate cluster my-cluster --infrastructure libvirt \
+  --flavor ephemeral --list-variables    # show what a flavor needs
+```
+
+The flavors reuse the same variable names. The non-topology flavors all need
+`CLUSTER_NAME`, `NAMESPACE`, `CONTROL_PLANE_ENDPOINT_HOST`,
+`LIBVIRT_HOST_NAME`, `LIBVIRT_HOST_SSH_SECRET`,
+`LIBVIRT_HOST_SSH_FINGERPRINT`, `BOOTSTRAP_SECRET_NAME`, `BASE_IMAGE`,
+`CONTROL_PLANE_IP`, `NETWORK_GATEWAY` and `NETWORK_DNS`. The table lists
+what each flavor needs on top of that. Each template's header comment
+documents every variable, including the optional ones with defaults.
+
+| Flavor | Purpose | Required variables beyond the common set |
+| --- | --- | --- |
+| *(default)* `cluster-template.yaml` | One explicitly placed Machine + LibvirtMachine on a system-mode host. Duplicate the LibvirtHost / Machine / LibvirtMachine blocks per extra node. | `LIBVIRT_HOST_URI` |
+| `direct-boot` | As default, plus `LibvirtCluster.spec.bootArtifacts`: first boot uses direct kernel boot with the kernel and initramfs fetched over HTTPS, and ignition delivered on a virtio-blk disk instead of fw_cfg (see [direct kernel boot](#fast-first-boot-with-bootartifacts-direct-kernel-boot)). | `LIBVIRT_HOST_URI`, `BOOT_KERNEL_URL`, `BOOT_INITRAMFS_URL` |
+| `session-mode` | As default, but the host is reached at `qemu+ssh://<user>@<host>/session` (the [unprivileged per-user daemon](#session-mode-unprivileged-libvirt)). `network.type` is fixed to `bridge`, the only type session mode supports. | `LIBVIRT_HOST_ADDRESS` (replaces `LIBVIRT_HOST_URI`) |
+| `ephemeral` | As default, but `rootDisk.ephemeralPool: true` puts the root disk in a per-machine tmpfs pool that is destroyed with the VM (see [ephemeral storage](#ephemeral-storage-with-tmpfs)). The base image stays in `BASE_IMAGE_POOL`. | `LIBVIRT_HOST_URI` |
+| `topology` | ClusterClass-based cluster from the `libvirt-kubeadm` ClusterClass (`clusterclass-libvirt-kubeadm.yaml`, fetched by clusterctl automatically). Builds a new kubeadm workload cluster on cloud-init guests: one control plane VM and one worker VM, each on its own LibvirtHost. | `CLUSTER_NAME`, `NAMESPACE`, `KUBERNETES_VERSION`, `CONTROL_PLANE_ENDPOINT_HOST`, `CONTROL_PLANE_LIBVIRT_HOST`, `CONTROL_PLANE_LIBVIRT_HOST_URI`, `CONTROL_PLANE_LIBVIRT_HOST_SSH_FINGERPRINT`, `WORKER_LIBVIRT_HOST`, `WORKER_LIBVIRT_HOST_URI`, `WORKER_LIBVIRT_HOST_SSH_FINGERPRINT`, `LIBVIRT_HOST_SSH_SECRET`, `CONTROL_PLANE_IP`, `WORKER_IP`, `NETWORK_GATEWAY`, `NETWORK_DNS`, `BASE_IMAGE` (replaces the common set) |
+
+Notes on the topology flavor:
+
+- A ClusterClass has to name a control plane provider template and a
+  bootstrap config template for every worker class. The default flavor's
+  model, a pre-existing control plane plus hand-made bootstrap Secrets or
+  capi-bootstrap-ignition (which has no template kind), cannot be written
+  as a ClusterClass. The class therefore uses the core CAPI kubeadm
+  providers, so `clusterctl init` needs `--control-plane kubeadm
+  --bootstrap kubeadm`, which are the defaults.
+- CAPLV does not allocate hosts or IP addresses. Each role gets one
+  LibvirtHost and one static address through ClusterClass variables, and
+  the control plane and worker replica counts must stay at 1. Workers roll
+  out delete-first (`maxSurge: 0`). A KubeadmControlPlane rollout always
+  surges, so a control plane upgrade collides on the host and stalls.
+- `BASE_IMAGE` must be a cloud-init qcow2 with kubeadm, kubelet and a
+  container runtime for `KUBERNETES_VERSION`, such as an image-builder
+  qemu EFI build. Its NIC must be named `enp1s0` and it must use netplan,
+  because the class writes the static address as a netplan file. CAPLV only
+  injects network configuration into ignition guests.
+
 ## Key Design Decisions
 
 Rationale and trade-offs are recorded in [host management](docs/adr/0001-host-management.md)
@@ -945,11 +1026,16 @@ not a tested support range; release tags must be checked independently.
 
 | CAPLV revision | Cluster API | Kubernetes | libvirt / QEMU |
 | --- | --- | --- | --- |
-| Development (`main`) | Built against CAPI v1.9.11; imports the v1beta1 API and transitional metav1 condition utilities | Kubernetes Go libraries v0.35.0; `make test` selects envtest 1.35 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
+| Development (`main`) | Requires a CAPI core that implements the v1beta2 contract (v1.11 or later). Built against the CAPI v1.9.11 Go module; imports the v1beta1 API and transitional metav1 condition utilities | Kubernetes Go libraries v0.35.0; `make test` selects envtest 1.35 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
 
 `metadata.yaml` advertises the v1beta2 contract for the 0.1 and 0.2 release
-series. That declaration alone does not establish full contract compliance or
-ClusterClass support. Machine templates, host/IP allocation for scaling, and
+series, and the CRDs carry only the `cluster.x-k8s.io/v1beta2` contract label.
+Status fields such as `initialization.provisioned` and the list-shaped
+`failureDomains` follow v1beta2, so CAPI releases that only implement the
+v1beta1 contract (v1.10 and earlier) are not supported. That declaration
+alone does not establish full contract compliance or ClusterClass support;
+see [ADR 0003](docs/adr/0003-api-version-promotion.md) for the remaining gaps
+and the promotion plan. Machine templates, host/IP allocation for scaling, and
 end-to-end lifecycle coverage remain open work. This tree's versions must not
 be read as verified compatibility for previously released binaries.
 
@@ -970,6 +1056,9 @@ make test
 
 # Generate CRDs and deepcopy
 make manifests generate
+
+# Regenerate the API reference (docs/api-reference/v1alpha1.md) after editing api/
+make api-docs
 
 # Build container image (pure Go, no CGo)
 make podman-build IMG=ghcr.io/atgreen/caplv:latest

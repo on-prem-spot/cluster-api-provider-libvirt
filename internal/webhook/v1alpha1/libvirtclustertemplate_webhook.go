@@ -98,27 +98,11 @@ func (v *LibvirtClusterTemplateCustomValidator) ValidateDelete(
 	return nil, nil
 }
 
-// validateTemplatedClusterSpec checks the parts of a cluster spec that are
-// wrong to template regardless of the cluster they land on.
+// validateTemplatedClusterSpec applies the LibvirtCluster spec rules to the
+// spec a template stamps out, so a template cannot be used to create clusters
+// that the cluster webhook would have rejected.
 func validateTemplatedClusterSpec(spec infrastructurev1alpha1.LibvirtClusterSpec) field.ErrorList {
-	var allErrs field.ErrorList
-	base := field.NewPath("spec", "template", "spec")
-
-	// A port is either absent or usable; a template carrying an unusable one
-	// would stamp it onto every cluster and fail each of them identically.
-	if port := spec.ControlPlaneEndpoint.Port; port < 0 || port > 65535 {
-		allErrs = append(allErrs, field.Invalid(
-			base.Child("controlPlaneEndpoint", "port"), port,
-			"port must be between 0 and 65535",
-		))
-	}
-	if spec.ControlPlaneEndpoint.Host == "" && spec.ControlPlaneEndpoint.Port != 0 {
-		allErrs = append(allErrs, field.Invalid(
-			base.Child("controlPlaneEndpoint"), spec.ControlPlaneEndpoint,
-			"port is set without a host; set both or neither",
-		))
-	}
-	return allErrs
+	return validateClusterSpec(spec, field.NewPath("spec", "template", "spec"))
 }
 
 // endpointWarnings reports, without blocking, that a templated control plane

@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 
 	"os"
 
@@ -41,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrastructurev1alpha1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/feature"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/bootartifacts"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/controller"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/imagecache"
@@ -77,6 +79,7 @@ func main() {
 	var baseImageCacheDir string
 	var allowInsecureHostKeys bool
 	var allowInsecureImageTransport bool
+	var watchFilterValue string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -110,11 +113,16 @@ func main() {
 		"Permit LibvirtCluster.spec.baseImage sources that disable transport authentication "+
 			"(plain http:// URLs, oci.plainHTTP, s3.insecure, or any insecureSkipTLSVerify). "+
 			"Off by default: those bytes become the root disk of every worker VM.")
+	flag.StringVar(&watchFilterValue, "watch-filter", "",
+		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. "+
+			"Label key is always %s. If unspecified, the controller watches for all cluster-api objects.",
+			clusterv1.WatchLabel))
 	opts := zap.Options{
 		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	feature.MutableGates.AddFlag(pflag.CommandLine)
 	pflag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
@@ -207,14 +215,16 @@ func main() {
 		SSHClientFactory:     sshClientFactory,
 		LibvirtClientFactory: libvirtClientFactory,
 		Recorder:             mgr.GetEventRecorder("libvirthost-controller"),
+		WatchFilterValue:     watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtHost")
 		os.Exit(1)
 	}
 	if err := (&controller.LibvirtClusterReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("libvirtcluster-controller"),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorder("libvirtcluster-controller"),
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtCluster")
 		os.Exit(1)
@@ -243,13 +253,15 @@ func main() {
 		BaseImageCache:          baseImageCache,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 		Recorder:                mgr.GetEventRecorder("libvirtmachine-controller"),
+		WatchFilterValue:        watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtMachine")
 		os.Exit(1)
 	}
 	if err := (&controller.CSRApproverReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CSRApprover")
 		os.Exit(1)
@@ -266,6 +278,14 @@ func main() {
 		}
 		if err := webhookv1alpha1.SetupLibvirtClusterTemplateWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtClusterTemplate")
+			os.Exit(1)
+		}
+		if err := webhookv1alpha1.SetupLibvirtClusterWebhookWithManager(mgr, allowInsecureImageTransport); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtCluster")
+			os.Exit(1)
+		}
+		if err := webhookv1alpha1.SetupLibvirtHostWebhookWithManager(mgr, allowInsecureHostKeys); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtHost")
 			os.Exit(1)
 		}
 	}

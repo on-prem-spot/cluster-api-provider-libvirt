@@ -19,6 +19,9 @@ package v1alpha1
 import (
 	"context"
 
+	admissionv1 "k8s.io/api/admission/v1"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	infrastructurev1alpha1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
@@ -45,10 +48,19 @@ type LibvirtMachineCustomDefaulter struct{}
 
 // Default implements the typed admission defaulter for LibvirtMachine.
 func (d *LibvirtMachineCustomDefaulter) Default(
-	_ context.Context,
+	ctx context.Context,
 	machine *infrastructurev1alpha1.LibvirtMachine,
 ) error {
 	libvirtmachinelog.Info("Defaulting for LibvirtMachine", "name", machine.GetName())
+
+	// Default on create only. The spec is immutable after creation, so a
+	// default written on update to an object stored without it would read as
+	// a spec change and the validating webhook would reject every later
+	// update -- including the controller's own finalizer and providerID
+	// patches.
+	if req, err := admission.RequestFromContext(ctx); err == nil && req.Operation == admissionv1.Update {
+		return nil
+	}
 
 	// An empty baseImagePool already means "the same pool as the root disk",
 	// resolved independently by the controller and by the validating webhook.

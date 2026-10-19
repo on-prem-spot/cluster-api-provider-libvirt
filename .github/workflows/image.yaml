@@ -1,0 +1,230 @@
+name: Image
+
+# Reusable workflow: build, push, sign, attest and scan the manager image.
+# Called by ci.yaml (pull requests and main) and release.yaml (tags) after
+# tests pass. The github context (event_name, ref) is the caller's, so the
+# PR / main / release branches below behave as they did in the single
+# pipeline.
+#
+# PR images are tagged with pr-NUMBER, main with date + latest, releases
+# with semver tags. Cosign signing on main and release only.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string from the extract-version action'
+        required: true
+        type: string
+      image-tag:
+        description: 'Primary image tag from the extract-version action'
+        required: true
+        type: string
+      short-sha:
+        description: 'Short commit SHA from the extract-version action'
+        required: true
+        type: string
+    outputs:
+      digest:
+        description: 'Digest of the pushed image'
+        value: ${{ jobs.docker.outputs.digest }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Docker build and push.
+  # ─────────────────────────────────────────────────────────────────────────────
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.docker_build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (PR)
+        id: meta-pr
+        if: github.event_name == 'pull_request'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.image-tag }}
+            type=raw,value=sha-${{ inputs.short-sha }}
+          flavor: |
+            latest=false
+
+      - name: Extract metadata (push to main)
+        id: meta-main
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v')
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.image-tag }}
+            type=raw,value=sha-${{ inputs.short-sha }}
+            type=raw,value=latest
+          flavor: |
+            latest=false
+
+      - name: Extract metadata (release)
+        id: meta-release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=semver,pattern=v{{major}}
+            type=raw,value=sha-${{ inputs.short-sha }}
+            type=raw,value=latest
+          flavor: |
+            latest=false
+
+      - name: Set build timestamp
+        id: build-time
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        id: docker_build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ inputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.build-time.outputs.date }}
+          push: true
+          tags: |
+            ${{ steps.meta-pr.outputs.tags }}
+            ${{ steps.meta-main.outputs.tags }}
+            ${{ steps.meta-release.outputs.tags }}
+          labels: |
+            ${{ steps.meta-pr.outputs.labels }}
+            ${{ steps.meta-main.outputs.labels }}
+            ${{ steps.meta-release.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
+      # Sign with Cosign (keyless, Sigstore) — main and release only.
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign container image with Cosign
+        if: github.event_name != 'pull_request'
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.docker_build.outputs.digest }}
+
+      # Release only: generate a CycloneDX SBOM for the published image.
+      - name: Generate Docker SBOM
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}
+          format: cyclonedx-json
+          output-file: docker-sbom.json
+          upload-release-assets: false
+
+      - name: Upload Docker SBOM as artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-sbom
+          path: docker-sbom.json
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # GitHub Artifact Attestation.
+  # ─────────────────────────────────────────────────────────────────────────────
+  attest:
+    name: Attest Docker Image
+    runs-on: ubuntu-latest
+    needs: [docker]
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ needs.docker.outputs.digest }}
+          push-to-registry: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Container security scan.
+  # ─────────────────────────────────────────────────────────────────────────────
+  trivy:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    needs: [docker]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-${{ github.event_name }}
+
+      - name: Upload Trivy report as artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-results.sarif

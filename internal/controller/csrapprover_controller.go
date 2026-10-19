@@ -52,6 +52,10 @@ const (
 type CSRApproverReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// WatchFilterValue, when non-empty, limits approval to nodes whose
+	// LibvirtMachine is labelled cluster.x-k8s.io/watch-filter=<value>, so one
+	// provider instance never approves CSRs for another instance's machines.
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=certificates.k8s.io,resources=certificatesigningrequests,verbs=get;list;watch
@@ -142,6 +146,9 @@ func (r *CSRApproverReconciler) libvirtMachineForNode(ctx context.Context, nodeN
 			Name:      machine.Spec.InfrastructureRef.Name,
 		}
 		if err := r.Get(ctx, lmKey, lm); err != nil {
+			continue
+		}
+		if r.WatchFilterValue != "" && lm.Labels[clusterv1.WatchLabel] != r.WatchFilterValue {
 			continue
 		}
 

@@ -105,6 +105,27 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+##@ Verify
+
+.PHONY: verify
+verify: verify-boilerplate verify-shellcheck verify-modules verify-gen ## Run all verification checks.
+
+.PHONY: verify-boilerplate
+verify-boilerplate: ## Verify Go and shell files carry the license header.
+	./hack/verify-boilerplate.sh
+
+.PHONY: verify-shellcheck
+verify-shellcheck: ## Run shellcheck on shell scripts (skipped if shellcheck is not installed).
+	./hack/verify-shellcheck.sh
+
+.PHONY: verify-modules
+verify-modules: ## Verify go.mod and go.sum are tidy.
+	./hack/verify-modules.sh
+
+.PHONY: verify-gen
+verify-gen: ## Verify generated manifests and code are up to date.
+	MAKE="$(MAKE)" ./hack/verify-gen.sh
+
 ##@ Build
 
 .PHONY: build
@@ -264,3 +285,18 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+##@ Documentation
+
+CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
+CRD_REF_DOCS_VERSION ?= v0.3.0
+
+.PHONY: api-docs
+api-docs: crd-ref-docs ## Generate the CRD API reference (docs/api-reference/v1alpha1.md) from api/v1alpha1.
+	"$(CRD_REF_DOCS)" --source-path=./api/v1alpha1 --config=./docs/api-reference/config.yaml \
+		--renderer=markdown --output-path=./docs/api-reference/v1alpha1.md
+
+.PHONY: crd-ref-docs
+crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
+$(CRD_REF_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))

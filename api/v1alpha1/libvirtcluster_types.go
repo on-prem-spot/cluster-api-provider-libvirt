@@ -347,11 +347,59 @@ type LibvirtClusterStatus struct {
 	// +optional
 	Ready bool `json:"ready,omitempty"`
 
+	// initialization reports one-time provisioning milestones, as defined by
+	// the Cluster API v1beta2 InfraCluster contract. Cluster API releases that
+	// use the v1beta2 contract read initialization.provisioned instead of
+	// ready; both are set.
+	// +optional
+	Initialization *LibvirtClusterInitializationStatus `json:"initialization,omitempty"`
+
+	// failureDomains lists the failure domains available to machines of this
+	// cluster, in the list shape of the Cluster API v1beta2 InfraCluster
+	// contract. Each LibvirtHost in the cluster's namespace is its own failure
+	// domain, named after the host: a host is an independent hypervisor whose
+	// loss takes down only the VMs it runs.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=10000
+	// +optional
+	FailureDomains []FailureDomain `json:"failureDomains,omitempty"`
+
 	// conditions represent the current state of the LibvirtCluster resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// FailureDomain describes one failure domain, matching the Cluster API v1beta2
+// clusterv1.FailureDomain type.
+type FailureDomain struct {
+	// name is the name of the failure domain: the name of a LibvirtHost.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	Name string `json:"name"`
+
+	// controlPlane determines if this failure domain is suitable for use by
+	// control plane machines.
+	// +optional
+	ControlPlane *bool `json:"controlPlane,omitempty"`
+
+	// attributes is a free form map of attributes an infrastructure provider
+	// might use or require.
+	// +optional
+	Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+// LibvirtClusterInitializationStatus reports one-time provisioning milestones
+// of a LibvirtCluster.
+// +kubebuilder:validation:MinProperties=1
+type LibvirtClusterInitializationStatus struct {
+	// provisioned is true once the cluster infrastructure is ready for the
+	// control plane. Once true it is never set back to false.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // +kubebuilder:object:root=true

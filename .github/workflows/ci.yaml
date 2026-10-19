@@ -1,0 +1,68 @@
+name: CI
+
+# Pull requests and pushes to main: unit + e2e tests (test.yaml), then build
+# and push the image (image.yaml). Release tags are handled by release.yaml;
+# lint, verify and govulncheck run as their own workflows.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# Cancel superseded runs for the same pull request. Pushes to main publish
+# images and always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Extract version; downstream jobs depend on this.
+  # ─────────────────────────────────────────────────────────────────────────────
+  extract-version:
+    name: Extract Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag-name }}
+      image-tag: ${{ steps.version.outputs.image-tag }}
+      image-repository: ${{ steps.version.outputs.image-repository }}
+      short-sha: ${{ steps.version.outputs.short-sha }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        uses: ./.github/actions/extract-version
+        with:
+          repository: ${{ github.repository }}
+          workflow-type: ${{ github.event_name == 'pull_request' && 'pr' || 'main' }}
+          pr-number: ${{ github.event.pull_request.number }}
+
+  test:
+    name: Test
+    needs: [extract-version]
+    uses: ./.github/workflows/test.yaml
+
+  image:
+    name: Image
+    needs: [extract-version, test]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    uses: ./.github/workflows/image.yaml
+    with:
+      version: ${{ needs.extract-version.outputs.version }}
+      image-tag: ${{ needs.extract-version.outputs.image-tag }}
+      short-sha: ${{ needs.extract-version.outputs.short-sha }}
