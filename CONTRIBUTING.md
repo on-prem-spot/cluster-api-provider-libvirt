@@ -33,6 +33,11 @@ make verify
 `make manifests generate` would change any files. New `.go` and `.sh` files need
 the Apache 2.0 header from `hack/boilerplate.go.txt`.
 
+CI runs these as separate workflows under `.github/workflows/`: `golangci-lint.yaml`
+(`make lint`), `verify.yaml` (`make verify`), `go-vulncheck.yaml`, and `ci.yaml`,
+which runs unit and e2e tests (`test.yaml`) and then builds the image
+(`image.yaml`). Release tags run `release.yaml`.
+
 After changing API types or Kubebuilder markers, regenerate artifacts with
 `make manifests generate`. Include the resulting changes in the PR. Do not edit
 CRDs, RBAC generated from markers, deepcopy files, or `PROJECT` by hand. Use

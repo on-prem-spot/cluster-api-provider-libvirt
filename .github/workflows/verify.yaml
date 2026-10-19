@@ -1,0 +1,45 @@
+name: Verify
+
+# Runs `make verify`: license headers, shellcheck, go mod tidy and
+# generated-file (CRD/RBAC/deepcopy) drift checks. See hack/verify-*.sh.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # hack/verify-shellcheck.sh skips silently without shellcheck, so make
+      # sure it is present in CI. GitHub's Ubuntu images normally ship it.
+      - name: Ensure shellcheck is installed
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+          shellcheck --version
+
+      - name: Run verification checks
+        run: make verify
