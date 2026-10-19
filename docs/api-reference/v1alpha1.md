@@ -224,6 +224,25 @@ _Appears in:_
 | `firmware` _[Firmware](#firmware)_ | firmware is the firmware type for the virtual machine. | uefi | Enum: [uefi bios] <br />Optional: \{\} <br /> |
 
 
+#### FailureDomain
+
+
+
+FailureDomain describes one failure domain, matching the Cluster API v1beta2
+clusterv1.FailureDomain type.
+
+
+
+_Appears in:_
+- [LibvirtClusterStatus](#libvirtclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | name is the name of the failure domain: the name of a LibvirtHost. |  | MaxLength: 256 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `controlPlane` _boolean_ | controlPlane determines if this failure domain is suitable for use by<br />control plane machines. |  | Optional: \{\} <br /> |
+| `attributes` _object (keys:string, values:string)_ | attributes is a free form map of attributes an infrastructure provider<br />might use or require. |  | Optional: \{\} <br /> |
+
+
 #### Firmware
 
 _Underlying type:_ _string_
@@ -319,6 +338,24 @@ It fulfills the Cluster API infrastructure cluster contract.
 | `status` _[LibvirtClusterStatus](#libvirtclusterstatus)_ | status defines the observed state of LibvirtCluster. |  | Optional: \{\} <br /> |
 
 
+#### LibvirtClusterInitializationStatus
+
+
+
+LibvirtClusterInitializationStatus reports one-time provisioning milestones
+of a LibvirtCluster.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [LibvirtClusterStatus](#libvirtclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `provisioned` _boolean_ | provisioned is true once the cluster infrastructure is ready for the<br />control plane. Once true it is never set back to false. |  | Optional: \{\} <br /> |
+
+
 #### LibvirtClusterSpec
 
 
@@ -352,6 +389,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ready` _boolean_ | ready indicates whether the cluster infrastructure is ready. |  | Optional: \{\} <br /> |
+| `initialization` _[LibvirtClusterInitializationStatus](#libvirtclusterinitializationstatus)_ | initialization reports one-time provisioning milestones, as defined by<br />the Cluster API v1beta2 InfraCluster contract. Cluster API releases that<br />use the v1beta2 contract read initialization.provisioned instead of<br />ready; both are set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `failureDomains` _[FailureDomain](#failuredomain) array_ | failureDomains lists the failure domains available to machines of this<br />cluster, in the list shape of the Cluster API v1beta2 InfraCluster<br />contract. Each LibvirtHost in the cluster's namespace is its own failure<br />domain, named after the host: a host is an independent hypervisor whose<br />loss takes down only the VMs it runs. |  | MaxItems: 10000 <br />Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | conditions represent the current state of the LibvirtCluster resource. |  | Optional: \{\} <br /> |
 
 
@@ -502,6 +541,24 @@ It represents a virtual machine managed by libvirt as a Cluster API infrastructu
 | `status` _[LibvirtMachineStatus](#libvirtmachinestatus)_ | status defines the observed state of LibvirtMachine. |  | Optional: \{\} <br /> |
 
 
+#### LibvirtMachineInitializationStatus
+
+
+
+LibvirtMachineInitializationStatus reports one-time provisioning milestones
+of a LibvirtMachine.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [LibvirtMachineStatus](#libvirtmachinestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `provisioned` _boolean_ | provisioned is true once the domain has been created and started.<br />Once true it is never set back to false. |  | Optional: \{\} <br /> |
+
+
 #### LibvirtMachineSpec
 
 
@@ -541,6 +598,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ready` _boolean_ | ready indicates whether the machine infrastructure is ready. |  | Optional: \{\} <br /> |
+| `initialization` _[LibvirtMachineInitializationStatus](#libvirtmachineinitializationstatus)_ | initialization reports one-time provisioning milestones, as defined by<br />the Cluster API v1beta2 InfraMachine contract. Cluster API releases that<br />use the v1beta2 contract read initialization.provisioned instead of<br />ready; both are set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `failureDomain` _string_ | failureDomain is the failure domain the machine runs in, as defined by<br />the Cluster API v1beta2 InfraMachine contract. Failure domains are<br />LibvirtHosts, so this is always spec.hostRef.name. |  | MaxLength: 256 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 | `addresses` _[MachineAddress](https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#MachineAddress) array_ | addresses is the list of addresses assigned to the machine. |  | Optional: \{\} <br /> |
 | `domainUUID` _string_ | domainUUID is the UUID of the libvirt domain. |  | Optional: \{\} <br /> |
 | `domainState` _string_ | domainState is the current state of the libvirt domain (e.g. running, shutoff). |  | Optional: \{\} <br /> |
