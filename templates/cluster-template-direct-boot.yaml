@@ -10,7 +10,8 @@
 # (serial=ignition) instead of QEMU fw_cfg. This avoids the qemu_fw_cfg
 # driver's O(n²) reads, which add tens of seconds of first boot for
 # multi-MB ignition payloads. See "Fast first boot with bootArtifacts" in
-# README.md for the OCI and S3 transports, which are not templated here.
+# docs/configuration.md for the OCI and S3 transports, which are not
+# templated here.
 #
 # Direct boot only changes ignition delivery, so this flavor fixes
 # bootstrapFormat to ignition.

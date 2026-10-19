@@ -1,0 +1,369 @@
+# Configuration
+
+Optional features and manager settings.
+
+## Custom resources
+
+| CRD | Purpose |
+|-----|---------|
+| **LibvirtHost** | Reusable connection details for a libvirt hypervisor (URI, SSH key, OVMF paths, reserved resources). Discovers host capacity via `virsh nodeinfo`. Health-checked only while machines are active. |
+| **LibvirtCluster** | CAPI contract resource — reports ready when the control plane endpoint is configured. No infrastructure provisioned. |
+| **LibvirtMachine** | Core resource — a single KVM VM with static IP, UEFI firmware, and ignition or cloud-init bootstrap. VM size can be auto-derived from host capacity. One per host (webhook-enforced). |
+| **LibvirtMachineTemplate** / **LibvirtClusterTemplate** | Inert templates that MachineDeployments, control plane providers and ClusterClass stamp LibvirtMachines / LibvirtClusters from. |
+
+The [API reference](api-reference/v1alpha1.md) lists every field, default
+and validation rule. It is generated from `api/v1alpha1` with `make api-docs`.
+
+## Ephemeral storage with tmpfs
+
+VMs are ephemeral — created and destroyed on demand by 5-Spot schedules.
+To avoid touching persistent storage on hosts with incumbent workloads,
+set `ephemeralPool: true`:
+
+```yaml
+rootDisk:
+  storagePool: "vm-disks"        # ignored in this mode — CAPLV provisions its own tmpfs pool
+  baseImagePool: "default"       # persistent pool with pre-staged base image
+  baseImage: "rhcos.qcow2"
+  ephemeralPool: true
+  ephemeralPoolSize: "80%"       # optional cap on tmpfs RAM (default: kernel's 50%)
+```
+
+**No host setup required.** CAPLV creates a per-machine tmpfs mount at
+`/run/caplv/<namespace>-<cluster>-<machine>` and a libvirt storage pool
+named `<namespace>-<cluster>-<machine>-pool` when the VM is provisioned,
+and tears both down when the VM is deleted. All per-VM artifacts (the
+root disk and any bootstrap ISO) land in this generated pool — the
+`storagePool` field is not used as the disk target in this mode (see
+[Storage Pools](architecture.md#storage-pools)). RAM is only consumed while the VM
+exists. The host's persistent storage is never touched.
+
+`ephemeralPoolSize` accepts tmpfs `size=` syntax: a percentage of physical
+RAM (`"80%"`) or an absolute size (`"16G"`). When unset, the kernel's
+default applies (50% of physical RAM per mount).
+
+## Node labels and annotations
+
+`LibvirtMachine.spec.nodeLabels` and `LibvirtMachine.spec.nodeAnnotations`
+apply arbitrary labels and annotations to the Kubernetes `Node` object
+that backs the VM, once kubelet has registered it with the cluster:
+
+```yaml
+spec:
+  # ...existing fields...
+  nodeLabels:
+    node-role.kubernetes.io/app: ""
+    k8s.ovn.org/egress-assignable: ""
+    dynatrace: "true"
+    aqua: "true"
+  nodeAnnotations:
+    example.com/owner: "platform-team"
+```
+
+Unlike the existing CAPI `Machine.spec.nodeLabels` field (and `kubelet
+--node-labels` / `K0sWorkerConfig.spec.args` / ignition kubelet drop-ins),
+this is **not subject to the NodeRestriction admission allow-list**.
+NodeRestriction polices labels self-set by kubelet (`system:nodes:<name>`)
+and CAPI mirrors the same allow-list on its own `nodeLabels` field. CAPLV
+instead patches the `Node` from the controller's own identity after
+kubelet registration, so arbitrary keys like `dynatrace` or
+`k8s.ovn.org/egress-assignable` are accepted.
+
+**Ownership.** CAPLV owns only the keys it has applied. It tracks them
+via two annotations it writes onto the `Node` itself:
+
+- `infrastructure.cluster.x-k8s.io/libvirt-managed-labels`
+- `infrastructure.cluster.x-k8s.io/libvirt-managed-annotations`
+
+On each reconcile, keys that have disappeared from spec are removed from
+the `Node`; admin-applied keys CAPLV never set are left untouched. The
+result of the patch is visible on
+`status.conditions[?(@.type=="NodeLabelled")]`:
+
+| Status | Reason          | Meaning                                                |
+| ------ | --------------- | ------------------------------------------------------ |
+| True   | `NodeLabelled`  | All declared keys are present on the Node              |
+| False  | `NodeNotJoined` | Waiting for kubelet to register the Node (retried 15s) |
+
+The condition is set only when at least one of `nodeLabels` /
+`nodeAnnotations` is non-empty; clearing both removes the condition. Node
+labelling does **not** block `status.ready` — infrastructure is reported
+ready as soon as the domain is running, and the patch is applied as a
+follow-on step.
+
+When using 5-Spot, put the fields inside `infrastructureSpec.spec` and
+they pass through to the underlying `LibvirtMachine`:
+
+```yaml
+apiVersion: 5spot.finos.org/v1alpha1
+kind: ScheduledMachine
+spec:
+  # ...
+  infrastructureSpec:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: LibvirtMachine
+    spec:
+      # ...VM config...
+      nodeLabels:
+        k8s.ovn.org/egress-assignable: ""
+        dynatrace: "true"
+```
+
+## Fast first boot with `bootArtifacts` (direct kernel boot)
+
+The default first-boot path delivers ignition via QEMU `fw_cfg`. That works
+on every OS image but has a known kernel issue: `qemu_fw_cfg` does O(n²)
+offset reads, which adds tens of seconds of wall-clock time for multi-MB
+ignition payloads (see [kernel bug #218394](https://bugzilla.kernel.org/show_bug.cgi?id=218394)).
+Setting `LibvirtCluster.spec.bootArtifacts` switches first-boot ignition
+delivery to libvirt direct-kernel-boot plus a virtio-blk ignition disk:
+
+- The controller fetches kernel + initramfs from a configured source.
+- Blobs are content-addressed on the libvirt host under `<hostPath>/<sha256>/`
+  and reused across machines and reconciles.
+- The domain XML is rendered with `<kernel>` / `<initrd>` / `<cmdline>` plus
+  a virtio-blk disk with `serial=ignition` carrying the rendered config.
+
+Three transports are supported: **HTTPS**, **OCI** (single artifact with two
+layers), and **S3** (any S3-compatible store).
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtCluster
+metadata:
+  name: prod
+spec:
+  controlPlaneEndpoint:
+    host: 10.0.0.10
+    port: 6443
+  bootArtifacts:
+    hostPath: /var/lib/caplv/boot      # cache dir on each libvirt host
+    kernelArgs: |-
+      ignition.platform.id=metal
+      ignition.config.url=oem:/dev/disk/by-id/virtio-ignition
+      console=ttyS0
+    source:
+      type: HTTPS                       # one of: HTTPS, OCI, S3
+      https:
+        kernelURL:       https://artifacts.example.com/rhcos/vmlinuz
+        initramfsURL:    https://artifacts.example.com/rhcos/initramfs.img
+        kernelSHA256:    <hex>          # optional integrity check
+        initramfsSHA256: <hex>
+```
+
+**OCI source.** Push a single `oras`-style artifact with the kernel and
+initramfs as two layers, identified by the
+`org.opencontainers.image.title` annotation:
+
+```bash
+oras push ghcr.io/example/boot:v1 \
+    vmlinuz:application/octet-stream \
+    initramfs.img:application/octet-stream
+```
+
+```yaml
+source:
+  type: OCI
+  oci:
+    reference: ghcr.io/example/boot:v1
+    # Optional layer-title overrides (defaults shown):
+    # kernelLayerTitle:    vmlinuz
+    # initramfsLayerTitle: initramfs.img
+    # plainHTTP:            false       # for in-cluster mirrors
+    # insecureSkipTLSVerify: false      # dev/self-signed only
+    credentialsSecretRef:                # optional for private registries
+      name: ghcr-pull-secret
+    kernelSHA256:    <hex>               # optional
+    initramfsSHA256: <hex>
+```
+
+The credentials secret can be either a `kubernetes.io/dockerconfigjson`
+Secret (preferred) or a Secret with plain `username` / `password` keys. It
+is read from the LibvirtCluster's namespace unless
+`credentialsSecretRef.namespace` is set.
+
+**S3 source.** Works with AWS S3, MinIO, and Ceph RGW:
+
+```yaml
+source:
+  type: S3
+  s3:
+    endpoint:     s3.amazonaws.com       # host[:port]
+    region:       us-east-1              # required by AWS, optional elsewhere
+    bucket:       my-boot-artifacts
+    kernelKey:    rhcos/vmlinuz
+    initramfsKey: rhcos/initramfs.img
+    # usePathStyle:           true       # required by MinIO/Ceph
+    # insecure:               false      # plain HTTP endpoint
+    # insecureSkipTLSVerify:  false
+    credentialsSecretRef:                # optional for private buckets
+      name: s3-read-creds
+    kernelSHA256:    <hex>               # optional
+    initramfsSHA256: <hex>
+```
+
+The S3 credentials Secret recognizes either:
+- `accessKeyID` / `secretAccessKey` / `sessionToken` (preferred), or
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`.
+
+Leaving `credentialsSecretRef` unset means anonymous reads.
+
+**Transport gzip.** Artifacts that arrive gzip-wrapped (detected by the
+`1f 8b` magic bytes — no naming convention required) are transparently
+decompressed before the sha256 is computed. So a `.gz`-wrapped kernel in
+Artifactory, an OCI layer pushed with `application/gzip`, and a raw
+`vmlinuz` all produce the same digest and the same on-host cache path.
+The `*SHA256` fields you configure describe the *decompressed* payload —
+i.e. what the kernel actually boots.
+
+**Caching and integrity.** Optional `*SHA256` fields are verified after
+download (and decompression, if applicable). Bytes are cached in-memory
+per controller process (keyed by the source spec digest), and on the
+libvirt host they live under `<hostPath>/<sha256>/{vmlinuz,initramfs.img}`
+so multiple machines reuse the same staged files.
+
+## Cluster-wide base image via URL (`baseImage`)
+
+Setting `LibvirtCluster.spec.baseImage` makes the controller responsible for
+distributing the cluster's root-disk qcow2 to every libvirt host. Hosts no
+longer need the qcow2 pre-staged via Ansible — they just need libvirt and a
+storage pool. The controller fetches the qcow2 once into its local cache
+and SCPs it onto each host the first time a machine targeting that host is
+scheduled; subsequent machines on the same host reuse the staged volume.
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtCluster
+metadata:
+  name: prod
+spec:
+  controlPlaneEndpoint:
+    host: 10.0.0.10
+    port: 6443
+  baseImage:
+    pool: default                       # libvirt storage pool on each host
+    volumeName: rhcos-4.18.qcow2        # the libvirt volume name the controller registers
+    source:
+      type: HTTPS                        # one of HTTPS, OCI, S3
+      https:
+        url: https://artifactory.example.com/rhcos/rhcos-4.18.qcow2.gz
+        sha256: <hex>                    # optional but strongly recommended for mutable URLs
+        credentialsSecretRef:
+          name: artifactory-creds        # optional
+        # insecureSkipTLSVerify: false   # dev/self-signed only; prefer SSL_CERT_FILE (see below)
+```
+
+`LibvirtMachine.spec.rootDisk.baseImage` continues to refer to the staged
+volume by name (here `rhcos-4.18.qcow2`), so existing machine manifests work
+unchanged once you point them at the cluster-managed volume name.
+
+**Transports.** `HTTPS` is the typical mirror case; `OCI` reads a
+single-blob artifact (`oras push <ref> rhcos.qcow2:application/octet-stream`)
+with optional `blobTitle` disambiguation; `S3` reads a single object from
+any S3-compatible store. All three accept a `credentialsSecretRef` with the
+same secret shapes used by `bootArtifacts`: `kubernetes.io/dockerconfigjson`
+or `username`/`password` for OCI/HTTPS basic auth, and
+`accessKeyID`/`secretAccessKey`/`sessionToken` (or the `AWS_*` env-var
+spellings) for S3.
+
+**Transparent gzip.** Same magic-byte sniff used by `bootArtifacts`:
+`.qcow2.gz` mirrors are decompressed in-stream before the digest is
+computed. The `sha256` field describes the *decompressed* qcow2.
+
+**HTTPS trust (private CAs).** The `HTTPS` transport verifies the server
+certificate against the controller container's trust store. When the mirror
+is served by an internal Artifactory (or any endpoint) fronted by a private
+or corporate CA, the fetch fails with `x509: certificate signed by unknown
+authority`. Rather than rebuild the controller image, mount the CA bundle
+and point Go's `SSL_CERT_FILE` at it — the controller's HTTPS client honors
+it automatically:
+
+```bash
+# CA certs are not secret, so a ConfigMap is fine.
+oc -n <controller-namespace> create configmap caplv-ca \
+  --from-file=ca-bundle.crt=/path/to/ca-bundle.pem
+```
+
+Add the mount and env var to the manager Deployment (works with the shipped
+`readOnlyRootFilesystem: true` security context, since the bundle is a
+read-only volume rather than a write into `/etc/pki`):
+
+```yaml
+        env:
+        - name: SSL_CERT_FILE
+          value: /etc/pki/caplv/ca-bundle.crt
+        volumeMounts:
+        - name: caplv-ca
+          mountPath: /etc/pki/caplv
+          readOnly: true
+      volumes:
+      - name: caplv-ca
+        configMap:
+          name: caplv-ca
+```
+
+`SSL_CERT_FILE` *replaces* the system bundle rather than adding to it. If the
+controller also fetches from public-CA endpoints, concatenate your CA with
+the system bundle into the ConfigMap (`cat ca.pem /etc/pki/tls/certs/ca-bundle.crt`),
+or use `SSL_CERT_DIR` to point at a directory of trusted certs instead. On
+OpenShift you can also have the cluster populate the bundle for you by
+creating an empty ConfigMap labeled
+`config.openshift.io/inject-trusted-cabundle: "true"` and mounting it the
+same way — useful when the CA is already in the cluster's proxy/additional
+trust bundle.
+
+As a last resort for development or self-signed endpoints, the `HTTPS` source
+also accepts `insecureSkipTLSVerify: true` (matching the `OCI` and `S3`
+transports), which disables certificate verification entirely. Prefer the
+`SSL_CERT_FILE` approach above for anything production — it keeps verification
+on.
+
+**Cache.** The controller stores fetched payloads under
+`--base-image-cache-dir` (default `/var/cache/caplv/baseimages`), mounted as
+an `emptyDir` in the shipped manager Deployment. Files are content-addressed
+by sha256; concurrent fetches for the same artifact are coalesced via
+`singleflight`, and concurrent uploads of the same artifact to the same
+host are coalesced per-`(host, sha256)`. A controller restart re-downloads
+on first use after the restart.
+
+**Status.** The first machine on a fresh host blocks while the qcow2 is
+SCP'd over and registered with libvirt — for a ~1 GB image this is minutes,
+not seconds. Watch
+`LibvirtMachine.status.conditions[?(@.type=="BaseImageStaged")]`:
+
+| Status | Reason             | Meaning                                                 |
+| ------ | ------------------ | ------------------------------------------------------- |
+| False  | `BaseImageStaging` | qcow2 is being uploaded to this host                    |
+| True   | `BaseImageStaged`  | Volume present in `spec.baseImage.pool`, ready to clone |
+
+Subsequent machines on the same host hit the volume-already-present fast
+path and don't surface the condition at all.
+
+## Running multiple provider instances (`--watch-filter`)
+
+Several CAPLV managers can share one management cluster, each owning a
+subset of objects. Start each manager with `--watch-filter=<value>` and
+label every object it should own — `Cluster`, `Machine`, `LibvirtCluster`,
+`LibvirtMachine` and `LibvirtHost` — with
+`cluster.x-k8s.io/watch-filter: <value>`. A manager ignores objects whose
+label does not match, and its CSR approver only approves CSRs for nodes
+backed by a matching `LibvirtMachine`. Without the flag, a manager
+reconciles everything.
+
+## Feature gates
+
+New, experimental behaviour ships behind a feature gate, enabled per
+manager with `--feature-gates=Name=true[,Other=false]`. Gates are declared in
+`feature/feature.go`. There are none yet; features that shipped before the
+framework existed, such as session mode and ephemeral storage, stay ungated.
+
+## Failure domains
+
+Each `LibvirtHost` is a failure domain. `LibvirtCluster.status.failureDomains`
+lists every host in the cluster's namespace (except hosts being deleted),
+all marked control-plane eligible, and CAPI copies the list to
+`Cluster.status.failureDomains`. Each `LibvirtMachine` reports its host in
+`status.failureDomain`, which CAPI copies to `Machine.status.failureDomain`.
+Both fields use the CAPI v1beta2 contract shapes. Placement is still chosen
+by `spec.hostRef`. CAPLV does not yet assign hosts from a failure domain
+chosen by CAPI.
