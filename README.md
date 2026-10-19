@@ -754,6 +754,13 @@ label does not match, and its CSR approver only approves CSRs for nodes
 backed by a matching `LibvirtMachine`. Without the flag, a manager
 reconciles everything.
 
+### Feature gates
+
+New, experimental behaviour ships behind a feature gate, enabled per
+manager with `--feature-gates=Name=true[,Other=false]`. Gates are declared in
+`feature/feature.go`. There are none yet; features that shipped before the
+framework existed, such as session mode and ephemeral storage, stay ungated.
+
 ### Failure domains
 
 Each `LibvirtHost` is a failure domain. `LibvirtCluster.status.failureDomains`

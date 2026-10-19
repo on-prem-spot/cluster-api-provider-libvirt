@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrastructurev1alpha1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/feature"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/bootartifacts"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/controller"
 	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/imagecache"
@@ -121,6 +122,7 @@ func main() {
 	}
 	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	feature.MutableGates.AddFlag(pflag.CommandLine)
 	pflag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
