@@ -724,27 +724,35 @@ spec:
   selector:
     matchLabels:
       node-role.kubernetes.io/worker: ""
-  unhealthyConditions:
-    - type: Ready
-      status: "False"
-      timeout: 5m           # node was Ready, now isn't — remediate after 5 min
-    - type: Ready
-      status: "Unknown"
-      timeout: 5m           # node stopped reporting — remediate after 5 min
-  nodeStartupTimeout: 10m   # time for a new VM to boot and join the cluster
+  checks:
+    nodeStartupTimeoutSeconds: 600  # time for a new VM to boot and join the cluster
+    unhealthyNodeConditions:
+      - type: Ready
+        status: "False"
+        timeoutSeconds: 300  # node was Ready, now isn't — remediate after 5 min
+      - type: Ready
+        status: "Unknown"
+        timeoutSeconds: 300  # node stopped reporting — remediate after 5 min
 ```
 
-**Tuning `nodeStartupTimeout`:** This is how long CAPI waits for a newly
+**Tuning `nodeStartupTimeoutSeconds`:** This is how long CAPI waits for a newly
 provisioned VM to boot, run ignition, start kubelet, get its CSR approved,
 and report `Ready`. Typical CAPLV startup is 2-4 minutes (VM provision
 ~30s, RHCOS boot ~60s, ignition + kubelet ~60s, CSR approval ~30s). The
-10-minute default gives comfortable headroom. Increase to 15m+ if your
+600 seconds above give comfortable headroom. Raise it to 900 or more if your
 hosts are slow, base images are large, or the network path to the API
 server has high latency.
 
 This is the safety net for the known limitation that CAPLV does not
 monitor VM health after provisioning. Without it, dead VMs leave orphaned
 Node objects in the cluster.
+
+**Terminal provisioning failures** (a missing storage pool, a host without
+room, an unsupported network type) show up as `Ready=False` on the
+`LibvirtMachine`, which CAPI mirrors into the Machine's `InfrastructureReady`
+condition, with the failure as the reason (see `api/v1alpha1/conditions.go`).
+Do not remediate on them with `unhealthyMachineConditions`: a replacement
+Machine names the same host and spec and fails the same way.
 
 ### Running multiple provider instances (`--watch-filter`)
 
