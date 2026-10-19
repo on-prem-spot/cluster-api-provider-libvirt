@@ -18,6 +18,14 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+// Condition types and reasons are untyped string constants on purpose.
+//
+// CAPLV stores conditions as []metav1.Condition, the CAPI v1beta2 shape,
+// whose Type and Reason fields are plain strings. clusterv1.ConditionType
+// belongs to the deprecated v1beta1 clusterv1.Conditions and would need a
+// string() conversion at every use without catching any mistake. CAPI's own
+// v1beta2 condition constants (e.g. clusterv1.ReadyV1Beta2Condition) are
+// untyped strings for the same reason.
 const (
 	// LibvirtHost conditions
 	HostReachableCondition = "Reachable"
