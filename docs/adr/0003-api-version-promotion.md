@@ -9,14 +9,15 @@ The CAPLV API is `infrastructure.cluster.x-k8s.io/v1alpha1`. Under the
 Kubernetes API conventions an alpha version may break at any time, and that
 holds back adoption. The official providers are at v1beta1 or v1beta2.
 
-The contract CAPLV declares and the one it builds against do not match:
+The contract CAPLV declared and the one it built against did not match:
 
 - `metadata.yaml` advertises the CAPI **v1beta2** contract, and the CRDs carry
   only the `cluster.x-k8s.io/v1beta2` contract label. CAPI v1.11 and later
   therefore read CAPLV objects with v1beta2 field shapes.
-- The code builds against the CAPI **v1.9.11** Go module, which predates
-  v1beta2. It imports `sigs.k8s.io/cluster-api/api/v1beta1` and the
-  transitional `GetV1Beta2Conditions`/`SetV1Beta2Conditions` accessors.
+- Until step 1 below, the code built against the CAPI **v1.9.11** Go module,
+  which predates v1beta2. It imported `sigs.k8s.io/cluster-api/api/v1beta1`
+  and the transitional `GetV1Beta2Conditions`/`SetV1Beta2Conditions`
+  accessors. Step 1 is now done: the code builds against CAPI v1.14.3.
 
 CAPI deprecated the v1beta1 contract in v1.11. Its migration notes plan to
 remove the compatibility layer (tentatively August 2026, on track for v1.16),
@@ -60,6 +61,13 @@ version makes clear which contract the API was designed against.
    versions it requires. Port imports from `api/v1beta1` to
    `api/core/v1beta2` and replace the transitional condition accessors with
    the v1beta2 ones. This changes no CAPLV API and can ship on v1alpha1.
+
+   *Done.* CAPLV builds against CAPI v1.14.3, controller-runtime v0.24.1 and
+   Kubernetes v0.36.3. v1alpha1 no longer embeds CAPI Go types: it owns
+   `APIEndpoint`, `ObjectMeta` and `MachineAddress` with the schema it had,
+   because the v1beta2 versions add validation (`MinProperties=1` on
+   non-pointer structs that serialize as `{}`) that would reject stored
+   objects. The API package now depends only on apimachinery.
 2. **Close the contract gaps on v1alpha1** where that is additive: add the
    LibvirtMachine `Ready` condition, and stop relying on CAPI reading
    `failureReason`/`failureMessage`.
@@ -117,7 +125,6 @@ v1beta2 ships, and v1alpha1 is deprecated, when:
   v1beta2.
 - Users get one migration, from v1alpha1 to v1beta2, done by the conversion
   webhook with no manual edits.
-- Until step 1 lands, the provider runs on CAPI's v1beta2 contract while
-  compiling against v1beta1 types. Contract fields CAPLV populates are mirrored
-  by hand in v1alpha1 (`FailureDomain`, the initialization status types),
-  rather than imported from CAPI.
+- Contract fields CAPLV populates are mirrored by hand in v1alpha1
+  (`FailureDomain`, the initialization status types) rather than imported
+  from CAPI, so the API's schema does not move when CAPI's types do.

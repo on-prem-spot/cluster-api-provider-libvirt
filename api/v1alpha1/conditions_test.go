@@ -21,7 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	conditions "sigs.k8s.io/cluster-api/util/conditions/v1beta2"
+	conditions "sigs.k8s.io/cluster-api/util/conditions"
 )
 
 func TestCAPIConditions(t *testing.T) {
@@ -30,11 +30,11 @@ func TestCAPIConditions(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			conditions.Set(obj, metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Provisioned", Message: "Ready"})
-			if !meta.IsStatusConditionTrue(obj.GetV1Beta2Conditions(), "Ready") {
+			if !meta.IsStatusConditionTrue(obj.GetConditions(), "Ready") {
 				t.Fatal("CAPI condition was not stored")
 			}
 			conditions.Set(obj, metav1.Condition{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Failed", Message: "Failed"})
-			if len(obj.GetV1Beta2Conditions()) != 1 || conditions.Get(obj, "Ready").Status != metav1.ConditionFalse {
+			if len(obj.GetConditions()) != 1 || conditions.Get(obj, "Ready").Status != metav1.ConditionFalse {
 				t.Fatal("CAPI condition was not updated")
 			}
 		})

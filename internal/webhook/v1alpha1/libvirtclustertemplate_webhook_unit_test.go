@@ -23,7 +23,6 @@ import (
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // The expected shape: no endpoint, to be filled per cluster.
@@ -54,7 +53,7 @@ func TestClusterTemplateValidateCreate_NoEndpointIsCleanAndQuiet(t *testing.T) {
 func TestClusterTemplateValidateCreate_WarnsOnTemplatedEndpoint(t *testing.T) {
 	v := &LibvirtClusterTemplateCustomValidator{}
 	obj := testClusterTemplate()
-	obj.Spec.Template.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "api.example.com", Port: 6443}
+	obj.Spec.Template.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{Host: "api.example.com", Port: 6443}
 
 	warnings, err := v.ValidateCreate(context.Background(), obj)
 	if err != nil {
@@ -74,7 +73,7 @@ func TestClusterTemplateValidateCreate_WarnsOnTemplatedEndpoint(t *testing.T) {
 func TestClusterTemplateValidateCreate_RejectsPortWithoutHost(t *testing.T) {
 	v := &LibvirtClusterTemplateCustomValidator{}
 	obj := testClusterTemplate()
-	obj.Spec.Template.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Port: 6443}
+	obj.Spec.Template.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{Port: 6443}
 
 	_, err := v.ValidateCreate(context.Background(), obj)
 	if err == nil {
@@ -88,7 +87,7 @@ func TestClusterTemplateValidateCreate_RejectsPortWithoutHost(t *testing.T) {
 func TestClusterTemplateValidateCreate_RejectsOutOfRangePort(t *testing.T) {
 	v := &LibvirtClusterTemplateCustomValidator{}
 	obj := testClusterTemplate()
-	obj.Spec.Template.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "api.example.com", Port: 70000}
+	obj.Spec.Template.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{Host: "api.example.com", Port: 70000}
 
 	_, err := v.ValidateCreate(context.Background(), obj)
 	if err == nil {
@@ -103,7 +102,7 @@ func TestClusterTemplateValidateUpdate_SpecIsImmutable(t *testing.T) {
 	v := &LibvirtClusterTemplateCustomValidator{}
 	oldObj := testClusterTemplate()
 	newObj := testClusterTemplate()
-	newObj.Spec.Template.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "api.example.com", Port: 6443}
+	newObj.Spec.Template.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{Host: "api.example.com", Port: 6443}
 
 	_, err := v.ValidateUpdate(context.Background(), oldObj, newObj)
 	if err == nil {

@@ -67,10 +67,9 @@ spec:
     host: "api.my-ocp-cluster.example.com"
     port: 6443
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: my-ocp-cluster
-    namespace: default
 ```
 
 **3. Create a LibvirtCluster resource** (CAPLV reports ready once the endpoint
@@ -1026,7 +1025,7 @@ not a tested support range; release tags must be checked independently.
 
 | CAPLV revision | Cluster API | Kubernetes | libvirt / QEMU |
 | --- | --- | --- | --- |
-| Development (`main`) | Requires a CAPI core that implements the v1beta2 contract (v1.11 or later). Built against the CAPI v1.9.11 Go module; imports the v1beta1 API and transitional metav1 condition utilities | Kubernetes Go libraries v0.35.0; `make test` selects envtest 1.35 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
+| Development (`main`) | Requires a CAPI core that implements the v1beta2 contract (v1.11 or later). Built against CAPI v1.14.3 and its v1beta2 API (`sigs.k8s.io/cluster-api/api/core/v1beta2`) | Kubernetes Go libraries v0.36.3, controller-runtime v0.24.1; `make test` selects envtest 1.36 | Uses `virsh` over SSH; no numeric minimum version is currently enforced or certified |
 
 `metadata.yaml` advertises the v1beta2 contract for the 0.1 and 0.2 release
 series, and the CRDs carry only the `cluster.x-k8s.io/v1beta2` contract label.

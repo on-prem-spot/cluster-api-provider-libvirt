@@ -23,7 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
@@ -150,15 +150,15 @@ func (s *MachineScope) GetBootstrapData(ctx context.Context) ([]byte, error) {
 
 // GetAddresses extracts IP addresses from the LibvirtMachine spec, stripping
 // any CIDR prefix length.
-func (s *MachineScope) GetAddresses() []clusterv1.MachineAddress {
-	addresses := make([]clusterv1.MachineAddress, 0, len(s.LibvirtMachine.Spec.Network.Addresses))
+func (s *MachineScope) GetAddresses() []infrav1.MachineAddress {
+	addresses := make([]infrav1.MachineAddress, 0, len(s.LibvirtMachine.Spec.Network.Addresses))
 	for _, addr := range s.LibvirtMachine.Spec.Network.Addresses {
 		ip := addr
 		if idx := strings.Index(addr, "/"); idx > 0 {
 			ip = addr[:idx]
 		}
-		addresses = append(addresses, clusterv1.MachineAddress{
-			Type:    clusterv1.MachineInternalIP,
+		addresses = append(addresses, infrav1.MachineAddress{
+			Type:    infrav1.MachineInternalIP,
 			Address: ip,
 		})
 	}
