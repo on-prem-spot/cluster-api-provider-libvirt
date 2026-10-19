@@ -1,0 +1,24 @@
+# crd-ref-docs configuration for `make api-docs`.
+# Reference: https://github.com/elastic/crd-ref-docs#configuration
+processor:
+  # List kinds only wrap items of their kind; documenting them adds noise.
+  ignoreTypes:
+    - "List$"
+  # TypeMeta (apiVersion/kind) is rendered per resource by the template.
+  ignoreFields:
+    - "TypeMeta$"
+
+render:
+  # Kubernetes version used for links to upstream API types (ObjectMeta,
+  # Condition, ResourceList, ...). Keep in step with k8s.io/api in go.mod.
+  kubernetesVersion: "1.35"
+  knownTypes:
+    - package: sigs.k8s.io/cluster-api/api/v1beta1
+      name: APIEndpoint
+      link: https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#APIEndpoint
+    - package: sigs.k8s.io/cluster-api/api/v1beta1
+      name: MachineAddress
+      link: https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#MachineAddress
+    - package: sigs.k8s.io/cluster-api/api/v1beta1
+      name: ObjectMeta
+      link: https://pkg.go.dev/sigs.k8s.io/cluster-api/api/v1beta1#ObjectMeta

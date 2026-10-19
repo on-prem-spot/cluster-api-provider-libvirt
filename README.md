@@ -225,6 +225,10 @@ image for an OCP 4.21 cluster). Download from
 | **LibvirtHost** | Reusable connection details for a libvirt hypervisor (URI, SSH key, OVMF paths, reserved resources). Discovers host capacity via `virsh nodeinfo`. Health-checked only while machines are active. |
 | **LibvirtCluster** | CAPI contract resource — reports ready when the control plane endpoint is configured. No infrastructure provisioned. |
 | **LibvirtMachine** | Core resource — a single KVM VM with static IP, UEFI firmware, and ignition or cloud-init bootstrap. VM size can be auto-derived from host capacity. One per host (webhook-enforced). |
+| **LibvirtMachineTemplate** / **LibvirtClusterTemplate** | Inert templates that MachineDeployments, control plane providers and ClusterClass stamp LibvirtMachines / LibvirtClusters from. |
+
+The [API reference](docs/api-reference/v1alpha1.md) lists every field, default
+and validation rule. It is generated from `api/v1alpha1` with `make api-docs`.
 
 ## Example
 
@@ -1047,6 +1051,9 @@ make test
 
 # Generate CRDs and deepcopy
 make manifests generate
+
+# Regenerate the API reference (docs/api-reference/v1alpha1.md) after editing api/
+make api-docs
 
 # Build container image (pure Go, no CGo)
 make podman-build IMG=ghcr.io/atgreen/caplv:latest

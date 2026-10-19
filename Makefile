@@ -285,3 +285,18 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+##@ Documentation
+
+CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
+CRD_REF_DOCS_VERSION ?= v0.3.0
+
+.PHONY: api-docs
+api-docs: crd-ref-docs ## Generate the CRD API reference (docs/api-reference/v1alpha1.md) from api/v1alpha1.
+	"$(CRD_REF_DOCS)" --source-path=./api/v1alpha1 --config=./docs/api-reference/config.yaml \
+		--renderer=markdown --output-path=./docs/api-reference/v1alpha1.md
+
+.PHONY: crd-ref-docs
+crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
+$(CRD_REF_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
