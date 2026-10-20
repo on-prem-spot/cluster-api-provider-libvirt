@@ -16,4 +16,4 @@ by CI.
 
 Treat the host names, IP addresses, and SSH details in these files as
 examples to replace, not defaults to adopt. For the supported install path,
-see the README and `config/`.
+see [Getting started](../getting-started.md) and `config/`.

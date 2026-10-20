@@ -6,8 +6,8 @@
 # unprivileged per-user libvirt daemon (qemu+ssh://.../session) instead of
 # the root-owned system daemon. QEMU then runs as the service account.
 #
-# The host must be prepared for session mode first (README, "Session mode
-# (unprivileged libvirt)"):
+# The host must be prepared for session mode first (docs/session-mode.md,
+# after the host setup in docs/getting-started.md):
 #
 #   ansible-playbook -i <host>, -u root deploy/ansible/setup-host.yaml \
 #     -e libvirt_mode=session -e '{"session_allowed_bridges": ["br0"]}'

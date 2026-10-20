@@ -8,7 +8,8 @@
 # when the VM is provisioned, places the root disk (and any cloud-init ISO)
 # there, and tears both down when the VM is deleted. The host's persistent
 # storage is never written to, and the RAM is only held while the VM exists.
-# See "Ephemeral storage with tmpfs" and "Storage Pools" in README.md.
+# See "Ephemeral storage with tmpfs" in docs/configuration.md and "Storage
+# pools" in docs/architecture.md.
 #
 # The base image is still read from a persistent pool (BASE_IMAGE_POOL);
 # the overlay is copy-on-write against it. STORAGE_POOL is a required field
