@@ -37,7 +37,17 @@ type SecretReference struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+// LibvirtClusterIdentityReference names a LibvirtClusterIdentity.
+type LibvirtClusterIdentityReference struct {
+	// name is the name of the LibvirtClusterIdentity.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+}
+
 // LibvirtHostSpec defines the desired state of LibvirtHost.
+// +kubebuilder:validation:XValidation:rule="has(self.secretRef) != has(self.identityRef)",message="exactly one of secretRef and identityRef must be set"
 type LibvirtHostSpec struct {
 	// uri is the libvirt connection URI (e.g. qemu+ssh://user@host/system).
 	// The path selects the libvirt daemon on the host: /system (default)
@@ -49,10 +59,19 @@ type LibvirtHostSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	URI string `json:"uri"`
 
-	// secretRef is a reference to a Secret containing the SSH private key
-	// for authenticating to the libvirt host.
-	// +required
-	SecretRef *SecretReference `json:"secretRef"`
+	// secretRef is a reference to a Secret in the host's namespace containing
+	// the SSH private key for authenticating to the libvirt host, under the
+	// `ssh-privatekey` key. Exactly one of secretRef and identityRef must be
+	// set.
+	// +optional
+	SecretRef *SecretReference `json:"secretRef,omitempty"`
+
+	// identityRef names a cluster-scoped LibvirtClusterIdentity holding the
+	// SSH private key, for credentials shared across hosts and namespaces
+	// and rotated in one place. The identity must allow this host's
+	// namespace. Exactly one of secretRef and identityRef must be set.
+	// +optional
+	IdentityRef *LibvirtClusterIdentityReference `json:"identityRef,omitempty"`
 
 	// hostKeyFingerprint is the SSH host key fingerprint (SHA256:...) used to
 	// verify the identity of the remote host.

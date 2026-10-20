@@ -1,0 +1,142 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: libvirtclusteridentities.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: LibvirtClusterIdentity
+    listKind: LibvirtClusterIdentityList
+    plural: libvirtclusteridentities
+    shortNames:
+    - libvirtci
+    singular: libvirtclusteridentity
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.secretName
+      name: Secret
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          LibvirtClusterIdentity is a cluster-scoped SSH credential that LibvirtHosts
+          in the namespaces it allows can reference with spec.identityRef instead of
+          carrying their own spec.secretRef. Its Secret lives in the controller's
+          namespace, so the authors of those hosts use the credential without being
+          able to read it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of LibvirtClusterIdentity
+            properties:
+              allowedNamespaces:
+                description: |-
+                  allowedNamespaces selects the namespaces whose LibvirtHosts may use
+                  this identity. A namespace is allowed if it is in list or matches
+                  selector. An empty allowedNamespaces ({}) allows every namespace.
+                  When unset, no namespace may use the identity.
+                properties:
+                  list:
+                    description: list names the allowed namespaces.
+                    items:
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    maxItems: 256
+                    type: array
+                    x-kubernetes-list-type: set
+                  selector:
+                    description: |-
+                      selector selects allowed namespaces by their labels. An empty selector
+                      ({}) matches every namespace.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              secretName:
+                description: |-
+                  secretName is the name of a Secret in the controller's namespace holding
+                  the SSH private key under the `ssh-privatekey` key, the same shape as a
+                  LibvirtHost's spec.secretRef Secret. The controller reads it on every
+                  connection, so replacing the key in the Secret, or pointing secretName
+                  at a new Secret, rotates the credential for every host using this
+                  identity without editing the hosts.
+                maxLength: 253
+                minLength: 1
+                type: string
+            required:
+            - secretName
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

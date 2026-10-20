@@ -76,6 +76,18 @@ The controller discovers total host capacity via `virsh nodeinfo` and
 reports available resources (total minus reserved) in
 `status.capacity.availableVCPUs` / `status.capacity.availableMemoryMB`.
 
+The `secretRef` Secret lives in the host's namespace and holds the SSH private
+key under `ssh-privatekey`:
+
+```bash
+kubectl create secret generic rhel-host-01-ssh-key \
+  --from-file=ssh-privatekey=caplv_ed25519
+```
+
+To share one key across many hosts or namespaces and rotate it in one place,
+reference a `LibvirtClusterIdentity` with `identityRef` instead; see
+[Shared SSH credentials](configuration.md#shared-ssh-credentials-libvirtclusteridentity).
+
 **5. Create a service account on each host** with minimal privileges:
 
 ```bash

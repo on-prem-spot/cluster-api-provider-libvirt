@@ -72,6 +72,17 @@ func TestLibvirtHostValidateCreate(t *testing.T) {
 		{name: "cross-namespace secret", wantErr: "spec.secretRef.namespace", mutate: func(h *infrav1.LibvirtHost) {
 			h.Spec.SecretRef.Namespace = "kube-system"
 		}},
+		{name: "identity instead of secret", mutate: func(h *infrav1.LibvirtHost) {
+			h.Spec.SecretRef = nil
+			h.Spec.IdentityRef = &infrav1.LibvirtClusterIdentityReference{Name: "shared"}
+		}},
+		{name: "identity and secret", wantErr: "spec.identityRef", mutate: func(h *infrav1.LibvirtHost) {
+			h.Spec.IdentityRef = &infrav1.LibvirtClusterIdentityReference{Name: "shared"}
+		}},
+		{name: "identity without name", wantErr: "spec.identityRef.name", mutate: func(h *infrav1.LibvirtHost) {
+			h.Spec.SecretRef = nil
+			h.Spec.IdentityRef = &infrav1.LibvirtClusterIdentityReference{}
+		}},
 		{name: "relative firmware path", wantErr: "spec.firmwarePath", mutate: func(h *infrav1.LibvirtHost) {
 			h.Spec.FirmwarePath = "OVMF_CODE.fd"
 		}},
@@ -131,5 +142,58 @@ func TestLibvirtHostURIImmutableWhileMachinesPlaced(t *testing.T) {
 	other.Spec.HealthCheckIntervalSeconds = 600
 	if _, err := busy.ValidateUpdate(context.Background(), old, other); err != nil {
 		t.Errorf("non-URI change on a busy host was rejected: %v", err)
+	}
+}
+
+func TestLibvirtHostIdentityWarnings(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := infrav1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	obj := testHost()
+	obj.Spec.SecretRef = nil
+	obj.Spec.IdentityRef = &infrav1.LibvirtClusterIdentityReference{Name: "shared"}
+	identity := func(allowed *infrav1.AllowedNamespaces) *infrav1.LibvirtClusterIdentity {
+		return &infrav1.LibvirtClusterIdentity{
+			ObjectMeta: metav1.ObjectMeta{Name: "shared"},
+			Spec:       infrav1.LibvirtClusterIdentitySpec{SecretName: "key", AllowedNamespaces: allowed},
+		}
+	}
+	defaultNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default", Labels: map[string]string{"team": "a"}}}
+
+	for _, tc := range []struct {
+		name     string
+		identity *infrav1.LibvirtClusterIdentity
+		wantWarn string
+	}{
+		{name: "missing identity", wantWarn: "does not exist yet"},
+		{name: "allowed", identity: identity(&infrav1.AllowedNamespaces{List: []string{"default"}})},
+		{name: "allowed by selector", identity: identity(&infrav1.AllowedNamespaces{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}},
+		})},
+		{name: "not allowed", identity: identity(nil), wantWarn: "does not allow namespace"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := fake.NewClientBuilder().WithScheme(s).WithObjects(defaultNS)
+			if tc.identity != nil {
+				b = b.WithObjects(tc.identity)
+			}
+			warnings, err := (&LibvirtHostCustomValidator{Client: b.Build()}).ValidateCreate(context.Background(), obj)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantWarn == "" {
+				if len(warnings) != 0 {
+					t.Errorf("unexpected warnings %v", warnings)
+				}
+				return
+			}
+			if len(warnings) != 1 || !strings.Contains(warnings[0], tc.wantWarn) {
+				t.Errorf("got warnings %v, want one containing %q", warnings, tc.wantWarn)
+			}
+		})
 	}
 }

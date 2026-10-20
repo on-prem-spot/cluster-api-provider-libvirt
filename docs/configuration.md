@@ -9,6 +9,7 @@ Optional features and manager settings.
 | **LibvirtHost** | Reusable connection details for a libvirt hypervisor (URI, SSH key, OVMF paths, reserved resources). Discovers host capacity via `virsh nodeinfo`. Health-checked only while machines are active. |
 | **LibvirtCluster** | CAPI contract resource — reports ready when the control plane endpoint is configured. No infrastructure provisioned. |
 | **LibvirtMachine** | Core resource — a single KVM VM with static IP, UEFI firmware, and ignition or cloud-init bootstrap. VM size can be auto-derived from host capacity. One per host (webhook-enforced). |
+| **LibvirtClusterIdentity** | Cluster-scoped SSH credential that LibvirtHosts in the namespaces it allows reference instead of their own Secret, so one key can be shared and rotated in one place. |
 | **LibvirtMachineTemplate** / **LibvirtClusterTemplate** | Inert templates that MachineDeployments, control plane providers and ClusterClass stamp LibvirtMachines / LibvirtClusters from. |
 
 The [API reference](api-reference/v1alpha1.md) lists every field, default
@@ -338,6 +339,69 @@ not seconds. Watch
 
 Subsequent machines on the same host hit the volume-already-present fast
 path and don't surface the condition at all.
+
+## Shared SSH credentials (`LibvirtClusterIdentity`)
+
+By default each `LibvirtHost` names a Secret in its own namespace with
+`spec.secretRef`. When many hosts, possibly in several namespaces, use the same
+service-account key, a cluster-scoped `LibvirtClusterIdentity` holds it once:
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtClusterIdentity
+metadata:
+  name: caplv-fleet
+spec:
+  secretName: caplv-fleet-ssh   # Secret in the controller's namespace
+  allowedNamespaces:
+    list: [team-a]
+    selector:
+      matchLabels:
+        caplv.example.com/hosts: "true"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: rhel-host-01
+  namespace: team-a
+spec:
+  uri: "qemu+ssh://caplv@rhel-host-01.example.com/system"
+  identityRef:
+    name: caplv-fleet           # instead of secretRef
+  hostKeyFingerprint: "SHA256:abc123..."
+```
+
+Create the Secret in the namespace the controller runs in (`caplv-system` for
+the shipped manifests), with the private key under `ssh-privatekey`:
+
+```bash
+kubectl -n caplv-system create secret generic caplv-fleet-ssh \
+  --from-file=ssh-privatekey=caplv_ed25519
+```
+
+- **Exactly one** of `secretRef` and `identityRef` must be set on a host.
+- **`allowedNamespaces`** decides which namespaces' hosts may use the identity.
+  A namespace is allowed if it is in `list` or its labels match `selector`.
+  `allowedNamespaces: {}` allows every namespace; leaving it unset allows
+  none. Anyone who can create a `LibvirtHost` in an allowed namespace can
+  connect, as the identity's account, to any host that trusts its key, so
+  scope it as tightly as the key's reach.
+- **The Secret stays in the controller's namespace.** Host authors use the
+  key without being able to read it, which `secretRef` cannot offer: its
+  Secret has to sit next to the host.
+- **Rotation.** The controller reads the Secret on every connection. Replace
+  the key in the Secret, or point `secretName` at a new Secret, and every host
+  using the identity picks it up on its next reconcile. Hosts referencing an
+  identity are rechecked whenever the identity changes.
+- **Failures show on the host.** A missing identity, a namespace the identity
+  does not allow, or a missing Secret marks the host `Ready=False` with reason
+  `ConnectionFailed` and a message naming the cause. The admission webhook also
+  warns about the first two when the host is created or updated.
+
+The controller finds its namespace from the `POD_NAMESPACE` environment
+variable, which the shipped Deployment sets; override it with
+`--identity-namespace`. `clusterctl move` does not yet move identities or
+their Secrets.
 
 ## Running multiple provider instances (`--watch-filter`)
 

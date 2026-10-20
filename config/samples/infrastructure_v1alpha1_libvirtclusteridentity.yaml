@@ -1,0 +1,15 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtClusterIdentity
+metadata:
+  labels:
+    app.kubernetes.io/name: caplv
+    app.kubernetes.io/managed-by: kustomize
+  name: libvirtclusteridentity-sample
+spec:
+  # Secret in the controller's namespace with an ssh-privatekey key.
+  secretName: caplv-ssh-key
+  # Namespaces whose LibvirtHosts may reference this identity with
+  # spec.identityRef. Use {} to allow every namespace.
+  allowedNamespaces:
+    list:
+      - default

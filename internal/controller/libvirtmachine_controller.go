@@ -96,6 +96,9 @@ type LibvirtMachineReconciler struct {
 	// WatchFilterValue, when non-empty, restricts reconciliation to objects
 	// labelled cluster.x-k8s.io/watch-filter=<value>.
 	WatchFilterValue string
+	// IdentityNamespace is the controller's namespace, where the Secrets of
+	// LibvirtClusterIdentities live.
+	IdentityNamespace string
 
 	artifactCache sync.Map
 
@@ -113,6 +116,8 @@ type LibvirtMachineReconciler struct {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusteridentities,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
@@ -1736,18 +1741,9 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 
 // createClients creates SSH and libvirt clients for the given host.
 func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infrav1.LibvirtHost) (*gossh.Client, libvirt.Client, error) {
-	if host.Spec.SecretRef == nil {
-		return nil, nil, fmt.Errorf("LibvirtHost %s has no secretRef configured", host.Name)
-	}
-
-	secretNS, err := resolveSecretNamespace(host.Spec.SecretRef.Namespace, host.Namespace, "spec.secretRef.namespace")
+	secret, err := hostSSHSecret(ctx, r.Client, host, r.IdentityNamespace)
 	if err != nil {
 		return nil, nil, err
-	}
-	secret := &corev1.Secret{}
-	secretKey := types.NamespacedName{Namespace: secretNS, Name: host.Spec.SecretRef.Name}
-	if err := r.Get(ctx, secretKey, secret); err != nil {
-		return nil, nil, fmt.Errorf("failed to get SSH secret: %w", err)
 	}
 
 	connURI, err := libvirt.LocalConnectionURI(host.Spec.URI)
