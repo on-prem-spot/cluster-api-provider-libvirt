@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.3.0] - 2026-10-20
+
+### Upgrade notes
+
+Before upgrading from 0.2.x (each item is detailed below):
+
+- **CAPI v1.11 or later** is required; CAPLV implements only the v1beta2 contract.
+- **Re-run `deploy/ansible/setup-host.yaml` on every host.** Privileged host operations now go through the `caplv-hostctl` helper it installs, and the old sudoers rules are replaced.
+- **Set `spec.hostKeyFingerprint` on every `LibvirtHost`**, or run the manager with `--allow-insecure-host-keys`; an unpinned host no longer connects.
+- **`http://` and other unauthenticated base-image and boot-artifact sources are refused** unless the manager runs with `--allow-insecure-image-transport`.
+- **`secretRef` and `credentialsSecretRef` must name a Secret in the referencing object's own namespace**, and `spec.nodeLabels`/`spec.nodeAnnotations` may not use the `kubernetes.io`, `k8s.io`, `node-role.kubernetes.io` or `node-restriction.kubernetes.io` domains.
+- **Manager flags are double-dash** (`--flag`), and logs are JSON by default.
+- **The `topology` flavor** no longer creates `LibvirtHost`s and its host variables are gone: register hosts first, labelled `caplv.infrastructure.cluster.x-k8s.io/role=control-plane` or `=worker`, each with a `spec.machineNetwork`.
+- Go importers: the module path is now `github.com/on-prem-spot/cluster-api-provider-libvirt`.
+
 
 ### Security
 
@@ -29,7 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The cloud-init meta-data carries the machine's provider ID as `provider_id`, which bootstrap data reads as `{{ ds.meta_data.provider_id }}`.
 - An end-to-end suite on real KVM (#23). `test/e2e-libvirt` is a separate Go module using `sigs.k8s.io/cluster-api/test`: clusterctl installs CAPI v1.14.3, the kubeadm providers and CAPLV built from the checkout into a kind management cluster, and Cluster API's quick-start spec builds a workload cluster from the `topology` flavor (one control plane VM and one worker VM), checks that the Cluster is Available and the Machines Ready, and deletes it. The new `E2E (libvirt)` workflow runs it on every pull request on a GitHub runner set up as the libvirt host, with the guests' serial consoles uploaded alongside the usual logs. Run it elsewhere with `make test-e2e-libvirt`.
 - cloud-init guests get their static addresses from CAPLV: the NoCloud ISO now carries a `network-config` (version 2) built from `spec.network`, matched to the NIC by MAC address, which cloud-init applies with the guest's own network stack. Unless `spec.network.macAddress` is set, CAPLV derives a stable MAC from the domain name in QEMU's `52:54:00` range, so it is known before the domain is defined. Enterprise Linux (NetworkManager) guests therefore work as well as netplan ones, and the e2e suite now also runs with CentOS Stream 9 guests.
-- The `topology` flavor takes optional `LIBVIRT_HOST_FIRMWARE_PATH`, `LIBVIRT_HOST_NVRAM_TEMPLATE_PATH`, `LIBVIRT_HOST_RESERVED_VCPUS` and `LIBVIRT_HOST_RESERVED_MEMORY_MB`, so Debian and Ubuntu hosts (which ship only the 4M OVMF builds) and hosts that need a different reservation can use it. The defaults are the CRD's.
 - `clusterctl move` support. The `LibvirtHost` CRD carries the `clusterctl.cluster.x-k8s.io/move` label and the `LibvirtClusterIdentity` CRD `clusterctl.cluster.x-k8s.io/move-hierarchy`, so hosts and identities move with the clusters that use them; previously they were left behind and the moved `LibvirtMachine`s named hosts the target did not have. The controller makes each identity an owner of its Secret so the Secret moves with it (deleting an identity now deletes its Secret), which needs `patch` on Secrets through a new Role confined to the manager's namespace. `secretRef` Secrets must be labelled `clusterctl.cluster.x-k8s.io/move` by their owner. A new test runs clusterctl's move between two envtest API servers. See ADR 0005.
 - `LibvirtClusterIdentity`, a cluster-scoped SSH credential that `LibvirtHost`s reference with `spec.identityRef` instead of `spec.secretRef` (#41). Its Secret lives in the controller's namespace, so host authors use the key without being able to read it, one key serves hosts in many namespaces, and replacing the Secret (or pointing `spec.secretName` at a new one) rotates it for every host at once. `spec.allowedNamespaces` decides which namespaces may use it, by name or label selector; unset allows none and `{}` allows all. A host must set exactly one of `secretRef` and `identityRef`, so `secretRef` is no longer required. The manager reads its namespace from `POD_NAMESPACE`, now set in the shipped Deployment, or `--identity-namespace`, and needs `get;list;watch` on `libvirtclusteridentities` and `namespaces`. See ADR 0004.
 - `LibvirtMachine` reports a `Ready` condition covering its whole lifecycle, which CAPI mirrors into the Machine's `InfrastructureReady` condition. While provisioning it follows `InfrastructureReady` or whichever condition is holding provisioning back; after a terminal failure it is `False` with the failure's reason; while the machine is being deleted it is `False` with reason `Deleting`. `LibvirtCluster` and `LibvirtMachine` also report a `Paused` condition when they or their Cluster are paused.
