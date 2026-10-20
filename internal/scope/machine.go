@@ -186,11 +186,22 @@ func (s *MachineScope) GetBootstrapData(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-// GetAddresses extracts IP addresses from the LibvirtMachine spec, stripping
+// Network returns the machine's network configuration with the fields it
+// leaves unset taken from its host's spec.machineNetwork.
+func (s *MachineScope) Network() infrav1.NetworkSpec {
+	var hostNetwork *infrav1.MachineNetworkSpec
+	if s.LibvirtHost != nil {
+		hostNetwork = s.LibvirtHost.Spec.MachineNetwork
+	}
+	return infrav1.EffectiveNetwork(s.LibvirtMachine.Spec.Network, hostNetwork)
+}
+
+// GetAddresses extracts the machine's IP addresses (see Network), stripping
 // any CIDR prefix length.
 func (s *MachineScope) GetAddresses() []infrav1.MachineAddress {
-	addresses := make([]infrav1.MachineAddress, 0, len(s.LibvirtMachine.Spec.Network.Addresses))
-	for _, addr := range s.LibvirtMachine.Spec.Network.Addresses {
+	network := s.Network()
+	addresses := make([]infrav1.MachineAddress, 0, len(network.Addresses))
+	for _, addr := range network.Addresses {
 		ip := addr
 		if idx := strings.Index(addr, "/"); idx > 0 {
 			ip = addr[:idx]

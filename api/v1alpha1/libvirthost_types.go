@@ -46,6 +46,41 @@ type LibvirtClusterIdentityReference struct {
 	Name string `json:"name"`
 }
 
+// LibvirtMachineReference names a LibvirtMachine in the referrer's namespace.
+type LibvirtMachineReference struct {
+	// name is the name of the LibvirtMachine.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+}
+
+// MachineNetworkSpec is a LibvirtHost's network configuration for its VM.
+// It has the fields of a LibvirtMachine's spec.network except model, which
+// defaults on the machine, and macAddress.
+type MachineNetworkSpec struct {
+	// type is the type of libvirt network attachment.
+	// +optional
+	Type NetworkType `json:"type,omitempty"`
+
+	// name is the name of the libvirt network or bridge device.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name,omitempty"`
+
+	// addresses is a list of static IP addresses in CIDR notation (e.g. 192.168.1.10/24).
+	// +optional
+	Addresses []string `json:"addresses,omitempty"`
+
+	// gateway is the default gateway address.
+	// +optional
+	Gateway string `json:"gateway,omitempty"`
+
+	// dns defines DNS configuration for the network.
+	// +optional
+	DNS *DNSSpec `json:"dns,omitempty"`
+}
+
 // LibvirtHostSpec defines the desired state of LibvirtHost.
 // +kubebuilder:validation:XValidation:rule="has(self.secretRef) != has(self.identityRef)",message="exactly one of secretRef and identityRef must be set"
 type LibvirtHostSpec struct {
@@ -105,6 +140,21 @@ type LibvirtHostSpec struct {
 	// +kubebuilder:default=300
 	// +kubebuilder:validation:Minimum=30
 	HealthCheckIntervalSeconds int32 `json:"healthCheckIntervalSeconds,omitempty"`
+
+	// machineNetwork is the network configuration for the VM this host runs.
+	// A host runs one VM, so its address can belong to the host, which keeps
+	// it valid on the host's network. A LibvirtMachine on this host takes
+	// each field it leaves unset in spec.network from here.
+	// +optional
+	MachineNetwork *MachineNetworkSpec `json:"machineNetwork,omitempty"`
+
+	// consumerRef names the LibvirtMachine using this host. CAPLV sets it
+	// when a machine claims the host and clears it once the machine's VM and
+	// artifacts are deleted; it is what keeps a host to one VM. Clearing it
+	// by hand hands the host to another machine while the old VM may still
+	// exist.
+	// +optional
+	ConsumerRef *LibvirtMachineReference `json:"consumerRef,omitempty"`
 }
 
 // ReservedResources defines resources reserved for the host's incumbent workloads.
@@ -169,6 +219,7 @@ type LibvirtHostStatus struct {
 // +kubebuilder:resource:categories=cluster-api,shortName=libvirth
 // +kubebuilder:printcolumn:name="URI",type="string",JSONPath=".spec.uri"
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
+// +kubebuilder:printcolumn:name="Consumer",type="string",JSONPath=".spec.consumerRef.name"
 // +kubebuilder:printcolumn:name="vCPUs",type="integer",JSONPath=".status.capacity.availableVCPUs",priority=1
 // +kubebuilder:printcolumn:name="MemMB",type="integer",JSONPath=".status.capacity.availableMemoryMB",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

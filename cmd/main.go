@@ -250,6 +250,7 @@ func main() {
 	}
 	if err := (&controller.LibvirtMachineReconciler{
 		Client:                  mgr.GetClient(),
+		APIReader:               mgr.GetAPIReader(),
 		Scheme:                  mgr.GetScheme(),
 		SSHClientFactory:        sshClientFactory,
 		LibvirtClientFactory:    libvirtClientFactory,

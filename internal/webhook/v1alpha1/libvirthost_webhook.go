@@ -165,23 +165,32 @@ func validateHostSpec(host *infrastructurev1alpha1.LibvirtHost) field.ErrorList 
 			allErrs = append(allErrs, field.Invalid(specPath.Child(p.name), p.value, "must be an absolute path"))
 		}
 	}
+
+	if mn := spec.MachineNetwork; mn != nil {
+		allErrs = append(allErrs, validateCIDRs(specPath.Child("machineNetwork", "addresses"), mn.Addresses)...)
+	}
 	return allErrs
 }
 
 // validateNoMachinesPlaced forbids a URI change while any LibvirtMachine still
-// references the host, including machines being deleted: their cleanup still
-// needs the original hypervisor.
+// uses the host, including machines being deleted: their cleanup still needs
+// the original hypervisor.
 func (v *LibvirtHostCustomValidator) validateNoMachinesPlaced(
 	ctx context.Context,
 	host *infrastructurev1alpha1.LibvirtHost,
 ) *field.Error {
 	path := field.NewPath("spec", "uri")
+	if host.Spec.ConsumerRef != nil {
+		return field.Forbidden(path, fmt.Sprintf(
+			"uri cannot change while LibvirtMachine %q is placed on this host; "+
+				"delete the machines on it first", host.Spec.ConsumerRef.Name))
+	}
 	machines := &infrastructurev1alpha1.LibvirtMachineList{}
 	if err := v.Client.List(ctx, machines, client.InNamespace(host.Namespace)); err != nil {
 		return field.InternalError(path, fmt.Errorf("failed to list machines: %w", err))
 	}
 	for i := range machines.Items {
-		if machines.Items[i].Spec.HostRef.Name == host.Name {
+		if machines.Items[i].AssignedHostName() == host.Name {
 			return field.Forbidden(path, fmt.Sprintf(
 				"uri cannot change while LibvirtMachine %q is placed on this host; "+
 					"delete the machines on it first", machines.Items[i].Name))

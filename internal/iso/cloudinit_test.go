@@ -17,6 +17,7 @@ limitations under the License.
 package iso
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -26,7 +27,8 @@ func TestBuildCloudInitISO(t *testing.T) {
 
 	networkConfig := []byte("version: 2\n")
 
-	data, err := builder.BuildCloudInitISO(userData, networkConfig, "test-instance-id", "test-host")
+	data, err := builder.BuildCloudInitISO(userData, networkConfig, "test-instance-id", "test-host",
+		"libvirt:///host-1/test-instance-id")
 	if err != nil {
 		t.Fatalf("BuildCloudInitISO returned unexpected error: %v", err)
 	}
@@ -37,4 +39,7 @@ func TestBuildCloudInitISO(t *testing.T) {
 	// reads these exact file names.
 	assertVolumeID(t, data, "cidata")
 	assertFileNames(t, data, "user-data", "meta-data", "network-config")
+	if !bytes.Contains(data, []byte("provider_id: libvirt:///host-1/test-instance-id\n")) {
+		t.Error("meta-data does not carry the provider ID")
+	}
 }

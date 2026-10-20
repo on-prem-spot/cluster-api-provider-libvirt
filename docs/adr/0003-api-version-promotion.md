@@ -78,17 +78,23 @@ version makes clear which contract the API was designed against.
    LibvirtMachine report a `Paused` condition.
 3. **Settle the breaking changes before beta.** These are the reasons to cut
    a new version at all; once v1beta2 is served they get much harder to make:
-   - remove `status.ready`, `status.failureReason`, `status.failureMessage`
-     (or move them under a `status.deprecated` block, as CAPI core did);
-   - remove the deprecated `SecretReference.namespace`;
+   - *(Decided: delete.)* remove `status.ready`, `status.failureReason`,
+     `status.failureMessage` from `v1beta2`, rather than keeping them under a
+     `status.deprecated` block as CAPI core did. Conversion from `v1alpha1`
+     drops them; the conditions already carry the same information;
+   - *(Decided: delete.)* remove the deprecated `SecretReference.namespace`
+     from `v1beta2`. CAPLV already ignores any namespace but the
+     referencing object's own;
    - *(Decided in [ADR 0004](0004-credential-identity.md).)* decide
      credential management (#41) so `LibvirtHost.spec.secretRef` is not frozen
      in its current form. v1alpha1 now has a cluster-scoped
      `LibvirtClusterIdentity` that hosts reference with `spec.identityRef`;
-   - decide host and address allocation: whether `spec.hostRef` becomes
-     optional and is resolved from the failure domain CAPI chooses, and how
-     static addresses are assigned per machine (e.g. CAPI IPAM);
-   - apply the CAPI v1beta2 API conventions (`omitzero` structs instead of
+   - *(Decided in [ADR 0006](0006-host-and-address-allocation.md); host
+     selection and host-provided addresses are implemented.)* decide
+     host and address allocation: whether `spec.hostRef` becomes optional and
+     is resolved from the failure domain CAPI chooses, and how static
+     addresses are assigned per machine (e.g. CAPI IPAM);
+   - *(Decided: apply.)* apply the CAPI v1beta2 API conventions (`omitzero` structs instead of
      pointers where the zero value is meaningless, `MinProperties`, explicit
      list types).
 4. **Add `v1beta2` as the hub and storage version, with v1alpha1 as a spoke.**

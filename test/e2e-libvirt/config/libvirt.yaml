@@ -72,34 +72,28 @@ variables:
   CNI: ./data/cni/kindnet.yaml
   CLUSTER_TOPOLOGY: "true"
 
-  # Template variables for the topology flavor. One physical host serves as
-  # both LibvirtHosts, since each LibvirtHost runs one VM.
-  CONTROL_PLANE_LIBVIRT_HOST: e2e-cp
-  WORKER_LIBVIRT_HOST: e2e-worker
-  LIBVIRT_HOST_SSH_SECRET: e2e-libvirt-host-ssh
-  CONTROL_PLANE_IP: 192.168.150.10/24
+  # Template variables for the topology flavor. The control plane endpoint
+  # is the control plane host's address in data/hosts.yaml.
   CONTROL_PLANE_ENDPOINT_HOST: 192.168.150.10
-  WORKER_IP: 192.168.150.11/24
-  NETWORK_TYPE: network
-  NETWORK_NAME: caplv-e2e
-  NETWORK_GATEWAY: 192.168.150.1
-  NETWORK_DNS: 192.168.150.1
   BASE_IMAGE: e2e-ubuntu-2404-kube-v1.36.5.qcow2
   STORAGE_POOL: default
   ROOT_DISK_SIZE: 20Gi
+
+  # The hosts the suite registers (data/hosts.yaml). One physical host
+  # serves as all three, since each LibvirtHost runs one VM.
+  LIBVIRT_HOST_SSH_SECRET: e2e-libvirt-host-ssh
+  NETWORK_NAME: caplv-e2e
+  NETWORK_PREFIX: "192.168.150"
   # Ubuntu's ovmf package ships only the 4M builds.
   LIBVIRT_HOST_FIRMWARE_PATH: /usr/share/OVMF/OVMF_CODE_4M.fd
   LIBVIRT_HOST_NVRAM_TEMPLATE_PATH: /usr/share/OVMF/OVMF_VARS_4M.fd
   LIBVIRT_HOST_RESERVED_VCPUS: "2"
 
   # From the host.
-  CONTROL_PLANE_LIBVIRT_HOST_URI: ""
-  CONTROL_PLANE_LIBVIRT_HOST_SSH_FINGERPRINT: ""
-  WORKER_LIBVIRT_HOST_URI: ""
-  WORKER_LIBVIRT_HOST_SSH_FINGERPRINT: ""
-  # Sized so each VM gets about 4 GiB of the host's memory.
+  LIBVIRT_HOST_URI: ""
+  LIBVIRT_HOST_SSH_FINGERPRINT: ""
+  # Sized so each VM gets about 3 GiB of the host's memory.
   LIBVIRT_HOST_RESERVED_MEMORY_MB: ""
-  # Read by the suite, not the templates.
   LIBVIRT_HOST_SSH_PRIVATE_KEY_PATH: ""
 
 intervals:

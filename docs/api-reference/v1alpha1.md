@@ -232,6 +232,7 @@ DNSSpec defines DNS configuration for the network.
 
 
 _Appears in:_
+- [MachineNetworkSpec](#machinenetworkspec)
 - [NetworkSpec](#networkspec)
 
 | Field | Description | Default | Validation |
@@ -571,6 +572,23 @@ It represents a reusable libvirt host connection configuration.
 | `status` _[LibvirtHostStatus](#libvirthoststatus)_ | status defines the observed state of LibvirtHost. |  | Optional: \{\} <br /> |
 
 
+#### LibvirtHostReference
+
+
+
+LibvirtHostReference names a LibvirtHost in the referrer's namespace.
+
+
+
+_Appears in:_
+- [LibvirtMachineSpec](#libvirtmachinespec)
+- [LibvirtMachineStatus](#libvirtmachinestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | name is the name of the LibvirtHost. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+
+
 #### LibvirtHostSpec
 
 
@@ -592,6 +610,8 @@ _Appears in:_
 | `nvramTemplatePath` _string_ | nvramTemplatePath is the UEFI VARS template on the host that each<br />machine's private NVRAM file is initialized from (the domain XML's<br /><nvram template=...>). It should be the VARS file matching the<br />firmwarePath loader build. | /usr/share/OVMF/OVMF_VARS.fd | Optional: \{\} <br /> |
 | `reservedResources` _[ReservedResources](#reservedresources)_ | reservedResources specifies how much CPU and memory to reserve for the<br />host's incumbent workloads. CAPLV will not allocate VMs that exceed<br />the remaining capacity. If unset, defaults to reserving 2 vCPUs and<br />4096 MB of memory. |  | Optional: \{\} <br /> |
 | `healthCheckIntervalSeconds` _integer_ | healthCheckIntervalSeconds is how often (in seconds) to recheck this<br />host when it has active machines. Hosts with no machines are not polled.<br />Default: 300 (5 minutes). | 300 | Minimum: 30 <br />Optional: \{\} <br /> |
+| `machineNetwork` _[MachineNetworkSpec](#machinenetworkspec)_ | machineNetwork is the network configuration for the VM this host runs.<br />A host runs one VM, so its address can belong to the host, which keeps<br />it valid on the host's network. A LibvirtMachine on this host takes<br />each field it leaves unset in spec.network from here. |  | Optional: \{\} <br /> |
+| `consumerRef` _[LibvirtMachineReference](#libvirtmachinereference)_ | consumerRef names the LibvirtMachine using this host. CAPLV sets it<br />when a machine claims the host and clears it once the machine's VM and<br />artifacts are deleted; it is what keeps a host to one VM. Clearing it<br />by hand hands the host to another machine while the old VM may still<br />exist. |  | Optional: \{\} <br /> |
 
 
 #### LibvirtHostStatus
@@ -651,6 +671,22 @@ _Appears in:_
 | `provisioned` _boolean_ | provisioned is true once the domain has been created and started.<br />Once true it is never set back to false. |  | Optional: \{\} <br /> |
 
 
+#### LibvirtMachineReference
+
+
+
+LibvirtMachineReference names a LibvirtMachine in the referrer's namespace.
+
+
+
+_Appears in:_
+- [LibvirtHostSpec](#libvirthostspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | name is the name of the LibvirtMachine. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+
+
 #### LibvirtMachineSpec
 
 
@@ -665,11 +701,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `hostRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | hostRef is a reference to a LibvirtHost resource in the same namespace. |  | Required: \{\} <br /> |
+| `hostRef` _[LibvirtHostReference](#libvirthostreference)_ | hostRef pins the machine to a LibvirtHost in the same namespace.<br />Exactly one of hostRef and hostSelector must be set. |  | Optional: \{\} <br /> |
+| `hostSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | hostSelector lets CAPLV choose the host: it claims a free, ready<br />LibvirtHost in the same namespace whose labels match, with enough<br />capacity, preferring the host named by the Machine's failure domain<br />when CAPI sets one. An empty selector matches every host. The chosen<br />host is reported in status.hostRef. Exactly one of hostRef and<br />hostSelector must be set. |  | Optional: \{\} <br /> |
 | `domain` _[DomainSpec](#domainspec)_ | domain defines the virtual machine domain configuration. |  | Required: \{\} <br /> |
 | `rootDisk` _[RootDiskSpec](#rootdiskspec)_ | rootDisk defines the root disk configuration. |  | Required: \{\} <br /> |
 | `additionalDisks` _[AdditionalDiskSpec](#additionaldiskspec) array_ | additionalDisks is an optional list of additional data disks to attach. |  | Optional: \{\} <br /> |
-| `network` _[NetworkSpec](#networkspec)_ | network defines the network configuration for the virtual machine. |  | Required: \{\} <br /> |
+| `network` _[NetworkSpec](#networkspec)_ | network defines the network configuration for the virtual machine.<br />Fields left unset are taken from the host's spec.machineNetwork, so a<br />machine whose host supplies everything can omit it. |  | Optional: \{\} <br /> |
 | `bootstrapFormat` _[BootstrapFormat](#bootstrapformat)_ | bootstrapFormat specifies the format of bootstrap data to generate. | ignition | Enum: [ignition cloud-init] <br />Required: \{\} <br /> |
 | `providerID` _string_ | providerID is the identifier used by CAPI to reference this machine.<br />Set by the controller after the domain is created. |  | Optional: \{\} <br /> |
 | `nodeLabels` _object (keys:string, values:string)_ | nodeLabels are labels to apply to the Kubernetes Node once kubelet<br />registers it with the cluster. Unlike CAPI's Machine.spec.nodeLabels<br />(which enforces a prefix allow-list to avoid bypassing NodeRestriction),<br />CAPLV patches the Node directly from the controller's own identity, so<br />arbitrary keys (e.g. "dynatrace", "aqua", "k8s.ovn.org/egress-assignable")<br />are accepted. Keys removed from this map on a later update are removed<br />from the Node; admin-applied labels that CAPLV never set are left<br />untouched. |  | Optional: \{\} <br /> |
@@ -689,6 +726,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `hostRef` _[LibvirtHostReference](#libvirthostreference)_ | hostRef is the LibvirtHost the machine runs on: spec.hostRef, or the<br />host claimed for it through spec.hostSelector. The claim, the host's<br />spec.consumerRef, is the record of it; this field can be rebuilt from it. |  | Optional: \{\} <br /> |
 | `ready` _boolean_ | ready indicates whether the machine infrastructure is ready. |  | Optional: \{\} <br /> |
 | `initialization` _[LibvirtMachineInitializationStatus](#libvirtmachineinitializationstatus)_ | initialization reports one-time provisioning milestones, as defined by<br />the Cluster API v1beta2 InfraMachine contract. Cluster API releases that<br />use the v1beta2 contract read initialization.provisioned instead of<br />ready; both are set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
 | `failureDomain` _string_ | failureDomain is the failure domain the machine runs in, as defined by<br />the Cluster API v1beta2 InfraMachine contract. Failure domains are<br />LibvirtHosts, so this is always spec.hostRef.name. |  | MaxLength: 256 <br />MinLength: 1 <br />Optional: \{\} <br /> |
@@ -817,6 +855,28 @@ _Appears in:_
 | `InternalIP` |  |
 
 
+#### MachineNetworkSpec
+
+
+
+MachineNetworkSpec is a LibvirtHost's network configuration for its VM.
+It has the fields of a LibvirtMachine's spec.network except model, which
+defaults on the machine, and macAddress.
+
+
+
+_Appears in:_
+- [LibvirtHostSpec](#libvirthostspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[NetworkType](#networktype)_ | type is the type of libvirt network attachment. |  | Enum: [bridge network] <br />Optional: \{\} <br /> |
+| `name` _string_ | name is the name of the libvirt network or bridge device. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `addresses` _string array_ | addresses is a list of static IP addresses in CIDR notation (e.g. 192.168.1.10/24). |  | Optional: \{\} <br /> |
+| `gateway` _string_ | gateway is the default gateway address. |  | Optional: \{\} <br /> |
+| `dns` _[DNSSpec](#dnsspec)_ | dns defines DNS configuration for the network. |  | Optional: \{\} <br /> |
+
+
 #### ManagedArtifacts
 
 
@@ -845,6 +905,10 @@ _Appears in:_
 
 NetworkSpec defines the network configuration for the virtual machine.
 
+Every field may be left to the host: unset fields are taken from the
+LibvirtHost's spec.machineNetwork. type, name and at least one address
+must come from one or the other.
+
 
 
 _Appears in:_
@@ -852,10 +916,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _[NetworkType](#networktype)_ | type is the type of libvirt network attachment. |  | Enum: [bridge network] <br />Required: \{\} <br /> |
-| `name` _string_ | name is the name of the libvirt network or bridge device. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `type` _[NetworkType](#networktype)_ | type is the type of libvirt network attachment. |  | Enum: [bridge network] <br />Optional: \{\} <br /> |
+| `name` _string_ | name is the name of the libvirt network or bridge device. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `model` _string_ | model is the NIC model. | virtio | Optional: \{\} <br /> |
-| `addresses` _string array_ | addresses is a list of static IP addresses in CIDR notation (e.g. 192.168.1.10/24). |  | MinItems: 1 <br />Required: \{\} <br /> |
+| `addresses` _string array_ | addresses is a list of static IP addresses in CIDR notation (e.g. 192.168.1.10/24). |  | Optional: \{\} <br /> |
 | `gateway` _string_ | gateway is the default gateway address. |  | Optional: \{\} <br /> |
 | `dns` _[DNSSpec](#dnsspec)_ | dns defines DNS configuration for the network. |  | Optional: \{\} <br /> |
 | `macAddress` _string_ | macAddress is an optional MAC address to assign to the interface. When<br />unset, CAPLV derives a stable one from the domain name in QEMU's<br />52:54:00 range, which cloud-init guests use to match the NIC to the<br />static address configuration CAPLV gives them. |  | Optional: \{\} <br /> |
@@ -871,6 +935,7 @@ _Validation:_
 - Enum: [bridge network]
 
 _Appears in:_
+- [MachineNetworkSpec](#machinenetworkspec)
 - [NetworkSpec](#networkspec)
 
 | Field | Description |

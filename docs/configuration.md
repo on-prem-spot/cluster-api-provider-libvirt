@@ -453,6 +453,84 @@ manager with `--feature-gates=Name=true[,Other=false]`. Gates are declared in
 `feature/feature.go`. There are none yet; features that shipped before the
 framework existed, such as session mode and ephemeral storage, stay ungated.
 
+## Choosing hosts (`hostSelector`)
+
+A `LibvirtMachine` either pins a host with `spec.hostRef` or lets CAPLV
+choose one with `spec.hostSelector`, a label selector over the
+`LibvirtHost`s in its namespace; exactly one must be set. Selectors are what
+let a `MachineDeployment`, a `KubeadmControlPlane` or a ClusterClass run more
+than one machine from one template.
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: rack1-host07
+  labels:
+    caplv.infrastructure.cluster.x-k8s.io/role: worker
+spec:
+  uri: qemu+ssh://caplv@rack1-host07.example.com/system
+  secretRef:
+    name: caplv-ssh
+  hostKeyFingerprint: SHA256:...
+  # The network for the one VM this host runs.
+  machineNetwork:
+    type: bridge
+    name: br0
+    addresses: [10.20.0.107/24]
+    gateway: 10.20.0.1
+    dns:
+      nameservers: [10.20.0.2]
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtMachineTemplate
+metadata:
+  name: workers
+spec:
+  template:
+    spec:
+      hostSelector:
+        matchLabels:
+          caplv.infrastructure.cluster.x-k8s.io/role: worker
+      domain: {}
+      rootDisk:
+        baseImage: ubuntu-2404-kube-v1.36.5.qcow2
+        storagePool: default
+      bootstrapFormat: cloud-init
+```
+
+How a host is chosen:
+
+- **Eligible hosts** match the selector, are `Ready`, are not being deleted,
+  have the vCPUs and memory the machine asks for, and have no
+  `spec.consumerRef`. When CAPI sets the Machine's failure domain, as
+  `KubeadmControlPlane` does to spread its machines, only that host is
+  eligible. The first eligible host by name is taken.
+- **The claim** is the host's `spec.consumerRef`, set to the machine with an
+  update that fails if the host changed, so two machines cannot take the same
+  host. Pinned machines claim their host the same way. The machine reports its
+  host in `status.hostRef` and the `Host` column of `kubectl get libvirtm`;
+  `kubectl get libvirthosts` shows each host's consumer.
+- **No free host** leaves the machine waiting with `HostAssigned=False`,
+  reason `NoHostAvailable`, rechecked every 30 seconds. It is not a failure:
+  adding or freeing a host lets it continue.
+- **Release** happens after the machine's VM and its artifacts are deleted,
+  so a host is never handed on while the old VM could still exist. If a
+  machine is force-deleted (its finalizer removed by hand), its claim stays;
+  once you have checked the VM is gone, clear it with
+  `kubectl patch libvirthost <name> --type merge -p '{"spec":{"consumerRef":null}}'`.
+
+**Addresses from the host.** A host runs one VM, so the VM's network can be
+part of the host: `spec.machineNetwork` gives its type, bridge or network
+name, addresses, gateway and DNS. Each field the machine leaves unset in
+`spec.network` comes from there, so templates can omit `network` entirely,
+or set, say, DNS for every machine while each host supplies its own address.
+A machine whose network and host together give no type, name or address
+waits with `InfrastructureReady=False`, reason `NetworkIncomplete`.
+
+IP address pools (the CAPI IPAM contract) are planned as a second source of
+addresses; see [ADR 0006](adr/0006-host-and-address-allocation.md).
+
 ## Failure domains
 
 Each `LibvirtHost` is a failure domain. `LibvirtCluster.status.failureDomains`
@@ -460,6 +538,7 @@ lists every host in the cluster's namespace (except hosts being deleted),
 all marked control-plane eligible, and CAPI copies the list to
 `Cluster.status.failureDomains`. Each `LibvirtMachine` reports its host in
 `status.failureDomain`, which CAPI copies to `Machine.status.failureDomain`.
-Both fields use the CAPI v1beta2 contract shapes. Placement is still chosen
-by `spec.hostRef`. CAPLV does not yet assign hosts from a failure domain
-chosen by CAPI.
+Both fields use the CAPI v1beta2 contract shapes. A machine with a
+`hostSelector` honours the failure domain CAPI chooses for it (see
+[Choosing hosts](#choosing-hosts-hostselector)); a pinned `hostRef` does
+not consult it.

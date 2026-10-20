@@ -285,3 +285,16 @@ func TestMachineNodeIPs_ParsesCIDRsAndBareIPs(t *testing.T) {
 		t.Errorf("unexpected addresses: %v", got)
 	}
 }
+
+// A machine whose address came from its host's spec.machineNetwork has none
+// in spec; the approver uses the addresses the controller recorded.
+func TestMachineNodeIPs_FallsBackToStatusAddresses(t *testing.T) {
+	lm := &infrav1.LibvirtMachine{Status: infrav1.LibvirtMachineStatus{Addresses: []infrav1.MachineAddress{
+		{Type: infrav1.MachineInternalIP, Address: "10.0.0.51"},
+		{Type: "Hostname", Address: "node-1"},
+	}}}
+	got := machineNodeIPs(lm)
+	if len(got) != 1 || got[0].String() != "10.0.0.51" {
+		t.Errorf("machineNodeIPs = %v, want [10.0.0.51]", got)
+	}
+}

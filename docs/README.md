@@ -13,5 +13,5 @@ compatibility table are in the [repository README](../README.md).
 | [Troubleshooting](troubleshooting.md) | MachineHealthCheck setup, failure modes and recovery, known limitations |
 | [Development](development.md) | Building, testing, code generation and project layout |
 | [API reference](api-reference/v1alpha1.md) | Every field, default and validation rule, generated from `api/v1alpha1` |
-| [Architecture decision records](adr/) | Rationale for host management, readiness, API version promotion, credential identities and `clusterctl move` |
+| [Architecture decision records](adr/) | Rationale for host management, readiness, API version promotion, credential identities, `clusterctl move` and host and address allocation |
 | [Demos](demos/) | Scripts and walkthroughs from the project demos |

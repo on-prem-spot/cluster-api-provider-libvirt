@@ -26,11 +26,11 @@ rule keeps ownership and capacity handling simple at the cost of density.
 
 ## Consequences for templates
 
-The absence of machine templates is a capability gap, not a guarantee that CAPI
-higher-order resources work. Repeating a template containing one host and one
-static IP conflicts with the placement model. Before promising deployments,
-rolling upgrades, or ClusterClass, define host selection, IP allocation, and
-replacement behavior, then add template CRDs and lifecycle tests.
+A template that repeats one host and one static IP conflicts with the
+placement model. [ADR 0006](0006-host-and-address-allocation.md) resolves
+this: machines can claim hosts through a label selector and take their
+addresses from the host, so templates, MachineDeployments and ClusterClass
+scale to as many machines as there are matching hosts.
 
 ## Session mode
 

@@ -50,7 +50,8 @@ NETWORK_NAME=caplv-e2e
 NETWORK_BRIDGE=virbr-e2e
 NETWORK_PREFIX=192.168.150
 # Memory each VM gets; each LibvirtHost reserves the rest of the host's.
-VM_MEMORY_MB=4096
+# The quick start runs three VMs (one control plane, two workers).
+VM_MEMORY_MB=3072
 GUEST=${GUEST:-ubuntu-24.04}
 case "$GUEST" in
   ubuntu-24.04)
@@ -250,11 +251,8 @@ emit_variables() {
   ssh -i "$WORK_DIR/id_ed25519" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$SSH_USER@$host_ip" virsh -c qemu:///system list --all >&2
 
-  local uri="qemu+ssh://$SSH_USER@$host_ip/system"
-  emit CONTROL_PLANE_LIBVIRT_HOST_URI "$uri"
-  emit WORKER_LIBVIRT_HOST_URI "$uri"
-  emit CONTROL_PLANE_LIBVIRT_HOST_SSH_FINGERPRINT "$fingerprint"
-  emit WORKER_LIBVIRT_HOST_SSH_FINGERPRINT "$fingerprint"
+  emit LIBVIRT_HOST_URI "qemu+ssh://$SSH_USER@$host_ip/system"
+  emit LIBVIRT_HOST_SSH_FINGERPRINT "$fingerprint"
   emit LIBVIRT_HOST_SSH_PRIVATE_KEY_PATH "$WORK_DIR/id_ed25519"
   emit LIBVIRT_HOST_RESERVED_MEMORY_MB "$((total_mb - VM_MEMORY_MB))"
   emit LIBVIRT_HOST_RESERVED_VCPUS "$((cpus > 2 ? cpus - 2 : 0))"

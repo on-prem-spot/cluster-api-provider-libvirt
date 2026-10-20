@@ -29,8 +29,13 @@ import (
 // BuildCloudInitISO creates an ISO9660 NoCloud image containing cloud-init data.
 // The ISO has volume label "cidata" and contains /user-data and /meta-data,
 // and /network-config when networkConfig is not empty (see NetworkConfig).
-func (b *DiskfsBuilder) BuildCloudInitISO(userData, networkConfig []byte, instanceID, hostname string) ([]byte, error) {
-	metaData := fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n", instanceID, hostname)
+//
+// meta-data carries the provider ID as provider_id, which bootstrap data can
+// read through cloud-init's jinja templating as {{ ds.meta_data.provider_id }}
+// to set the kubelet's --provider-id: it names the host, which a cluster
+// template does not know when CAPLV chooses the host.
+func (b *DiskfsBuilder) BuildCloudInitISO(userData, networkConfig []byte, instanceID, hostname, providerID string) ([]byte, error) {
+	metaData := fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\nprovider_id: %s\n", instanceID, hostname, providerID)
 
 	tmpFile, err := os.CreateTemp("", "caplv-cloudinit-*.iso")
 	if err != nil {
