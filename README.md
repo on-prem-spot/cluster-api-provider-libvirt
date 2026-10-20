@@ -80,7 +80,7 @@ over its own SSH connection.
 | [Development](docs/development.md) | Building, testing, code generation and project layout |
 | [E2E suite](test/e2e-libvirt/README.md) | The Cluster API e2e suite run against real KVM in CI, and how to run it elsewhere |
 | [API reference](docs/api-reference/v1alpha1.md) | Every field, default and validation rule, generated from `api/v1alpha1` |
-| [Architecture decision records](docs/adr/) | Rationale for host management, readiness, API version promotion, credential identities and `clusterctl move` |
+| [Architecture decision records](docs/adr/) | Rationale for host management, readiness, API version promotion, credential identities, `clusterctl move` and host and address allocation |
 
 ## Compatibility
 
