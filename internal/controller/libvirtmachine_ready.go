@@ -68,5 +68,11 @@ func setMachineReadyCondition(lm *infrav1.LibvirtMachine) {
 			}
 		}
 	}
+	// CAPI v1beta2 keeps healthy conditions silent: a True condition with a
+	// message is summarised into the Machine's and Cluster's conditions as if
+	// it needed attention.
+	if ready.Status == metav1.ConditionTrue {
+		ready.Message = ""
+	}
 	apimeta.SetStatusCondition(&lm.Status.Conditions, ready)
 }

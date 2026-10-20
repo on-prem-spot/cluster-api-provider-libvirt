@@ -18,6 +18,8 @@ package scope
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -92,6 +94,29 @@ func (s *MachineScope) ArtifactBaseName() string {
 
 // DomainName returns the libvirt domain name for this machine.
 func (s *MachineScope) DomainName() string { return s.ArtifactBaseName() }
+
+// maxHostnameLength is the longest hostname, and so Node name, a kubelet
+// can register: the kubernetes.io/hostname label value is capped at 63.
+const maxHostnameLength = 63
+
+// Hostname returns the guest hostname, which the kubelet registers as the
+// Node name. It is the domain name when that fits in maxHostnameLength,
+// and otherwise a prefix of it with a hash of the whole name appended, so
+// distinct machines keep distinct hostnames.
+func (s *MachineScope) Hostname() string {
+	return HostnameFor(s.DomainName())
+}
+
+// HostnameFor returns the guest hostname for a domain name; see Hostname.
+func HostnameFor(domainName string) string {
+	if len(domainName) <= maxHostnameLength {
+		return domainName
+	}
+	sum := sha256.Sum256([]byte(domainName))
+	suffix := hex.EncodeToString(sum[:])[:8]
+	prefix := strings.TrimRight(domainName[:maxHostnameLength-len(suffix)-1], "-")
+	return prefix + "-" + suffix
+}
 
 // RootDiskVolumeName returns the name of the root disk volume.
 func (s *MachineScope) RootDiskVolumeName() string {

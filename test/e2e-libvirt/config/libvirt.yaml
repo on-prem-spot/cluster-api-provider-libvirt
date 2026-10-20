@@ -1,0 +1,112 @@
+# E2E test configuration for CAPLV against real libvirt hosts. Read by
+# sigs.k8s.io/cluster-api/test/framework/clusterctl.LoadE2EConfig; relative
+# paths resolve against this file's directory, except CNI, which the suite
+# reads relative to test/e2e-libvirt.
+#
+# Every variable can be overridden by an environment variable of the same
+# name. The ones marked "from the host" have no usable default: the host
+# setup (scripts/setup-host.sh in CI) exports them.
+
+managementClusterName: caplv-e2e
+
+images:
+  # Built by `make docker-build IMG=ghcr.io/atgreen/caplv:e2e`.
+  - name: ghcr.io/atgreen/caplv:e2e
+    loadBehavior: mustLoad
+
+providers:
+  - name: cluster-api
+    type: CoreProvider
+    versions:
+      - name: v1.14.3
+        value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.14.3/core-components.yaml
+        type: url
+        contract: v1beta2
+        files:
+          - sourcePath: ../data/shared/capi-metadata.yaml
+            targetName: metadata.yaml
+
+  - name: kubeadm
+    type: BootstrapProvider
+    versions:
+      - name: v1.14.3
+        value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.14.3/bootstrap-components.yaml
+        type: url
+        contract: v1beta2
+        files:
+          - sourcePath: ../data/shared/capi-metadata.yaml
+            targetName: metadata.yaml
+
+  - name: kubeadm
+    type: ControlPlaneProvider
+    versions:
+      - name: v1.14.3
+        value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.14.3/control-plane-components.yaml
+        type: url
+        contract: v1beta2
+        files:
+          - sourcePath: ../data/shared/capi-metadata.yaml
+            targetName: metadata.yaml
+
+  - name: libvirt
+    type: InfrastructureProvider
+    versions:
+      # Built from this checkout. The version only has to fall in a release
+      # series listed in metadata.yaml.
+      - name: v0.2.99
+        value: ../../../config/default
+        contract: v1beta2
+        replacements:
+          # The shipped manifest pins :latest, which kind would try to pull.
+          - old: ghcr.io/atgreen/caplv:latest
+            new: ghcr.io/atgreen/caplv:e2e
+        files:
+          - sourcePath: ../../../metadata.yaml
+          - sourcePath: ../../../templates/cluster-template-topology.yaml
+          - sourcePath: ../../../templates/clusterclass-libvirt-kubeadm.yaml
+
+variables:
+  KUBERNETES_VERSION_MANAGEMENT: v1.36.4
+  # Must match the kubeadm/kubelet baked into BASE_IMAGE.
+  KUBERNETES_VERSION: v1.36.5
+  CNI: ./data/cni/kindnet.yaml
+  CLUSTER_TOPOLOGY: "true"
+
+  # Template variables for the topology flavor. One physical host serves as
+  # both LibvirtHosts, since each LibvirtHost runs one VM.
+  CONTROL_PLANE_LIBVIRT_HOST: e2e-cp
+  WORKER_LIBVIRT_HOST: e2e-worker
+  LIBVIRT_HOST_SSH_SECRET: e2e-libvirt-host-ssh
+  CONTROL_PLANE_IP: 192.168.150.10/24
+  CONTROL_PLANE_ENDPOINT_HOST: 192.168.150.10
+  WORKER_IP: 192.168.150.11/24
+  NETWORK_TYPE: network
+  NETWORK_NAME: caplv-e2e
+  NETWORK_GATEWAY: 192.168.150.1
+  NETWORK_DNS: 192.168.150.1
+  BASE_IMAGE: e2e-ubuntu-2404-kube-v1.36.5.qcow2
+  STORAGE_POOL: default
+  ROOT_DISK_SIZE: 20Gi
+  # Ubuntu's ovmf package ships only the 4M builds.
+  LIBVIRT_HOST_FIRMWARE_PATH: /usr/share/OVMF/OVMF_CODE_4M.fd
+  LIBVIRT_HOST_NVRAM_TEMPLATE_PATH: /usr/share/OVMF/OVMF_VARS_4M.fd
+  LIBVIRT_HOST_RESERVED_VCPUS: "2"
+
+  # From the host.
+  CONTROL_PLANE_LIBVIRT_HOST_URI: ""
+  CONTROL_PLANE_LIBVIRT_HOST_SSH_FINGERPRINT: ""
+  WORKER_LIBVIRT_HOST_URI: ""
+  WORKER_LIBVIRT_HOST_SSH_FINGERPRINT: ""
+  # Sized so each VM gets about 4 GiB of the host's memory.
+  LIBVIRT_HOST_RESERVED_MEMORY_MB: ""
+  # Read by the suite, not the templates.
+  LIBVIRT_HOST_SSH_PRIVATE_KEY_PATH: ""
+
+intervals:
+  default/wait-controllers: ["5m", "10s"]
+  default/wait-cluster: ["10m", "10s"]
+  # Includes booting the VM and kubeadm pulling the control plane images.
+  default/wait-control-plane: ["25m", "10s"]
+  default/wait-worker-nodes: ["20m", "10s"]
+  default/wait-delete-cluster: ["10m", "10s"]
+  default/wait-nodes-ready: ["10m", "10s"]

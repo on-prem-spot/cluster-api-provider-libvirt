@@ -69,7 +69,8 @@ func TestSetMachineReadyCondition(t *testing.T) {
 				cond(infrav1.BootstrapDataReadyCondition, metav1.ConditionTrue, infrav1.ReasonBootstrapDataReady, ""),
 				cond(infrav1.InfrastructureReadyCondition, metav1.ConditionTrue, infrav1.ReasonProvisioned, "ready"),
 			},
-			wantStatus: metav1.ConditionTrue, wantReason: infrav1.ReasonProvisioned, wantMessage: "ready",
+			// The message is dropped: CAPI expects True conditions to be silent.
+			wantStatus: metav1.ConditionTrue, wantReason: infrav1.ReasonProvisioned, wantMessage: "",
 		},
 		{
 			name:          "terminal failure",

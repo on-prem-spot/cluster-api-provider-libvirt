@@ -45,3 +45,12 @@ Notes on the topology flavor:
   qemu EFI build. Its NIC must be named `enp1s0` and it must use netplan,
   because the class writes the static address as a netplan file. CAPLV only
   injects network configuration into ignition guests.
+- Optional `LIBVIRT_HOST_FIRMWARE_PATH` and `LIBVIRT_HOST_NVRAM_TEMPLATE_PATH`
+  set the OVMF files on both hosts. They default to the Fedora/RHEL paths;
+  Debian and Ubuntu hosts need `/usr/share/OVMF/OVMF_CODE_4M.fd` and
+  `/usr/share/OVMF/OVMF_VARS_4M.fd`. `LIBVIRT_HOST_RESERVED_VCPUS` and
+  `LIBVIRT_HOST_RESERVED_MEMORY_MB` (default 2 and 4096) set what each host
+  keeps back; the class sizes each VM to the rest.
+- The e2e suite in `test/e2e-libvirt` builds a cluster from this flavor on
+  every CI run; its host setup script is a working example of a host and
+  base image this flavor accepts.

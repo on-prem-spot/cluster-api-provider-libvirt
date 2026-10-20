@@ -36,8 +36,11 @@
 # does not inject static network configuration into cloud-init guests, so
 # the class writes a netplan file for each role and applies it before
 # kubeadm runs. The node's kubelet --provider-id is assembled from the host
-# variable and cloud-init's local hostname, which CAPLV sets to the libvirt
-# domain name, matching the providerID CAPLV reports for the machine.
+# variable and cloud-init's instance ID, which CAPLV sets to the libvirt
+# domain name, matching the providerID CAPLV reports for the machine. The
+# node is named after cloud-init's local hostname: the domain name, or a
+# hashed 63-character form of it when longer, since Node names can be no
+# longer.
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: ClusterClass
@@ -246,10 +249,12 @@ spec:
               path: /spec/template/spec/hostRef/name
               valueFrom:
                 variable: controlPlaneMachine.hostRef
+            # The whole list: CAPI rejects patches into array elements.
             - op: replace
-              path: /spec/template/spec/network/addresses/0
+              path: /spec/template/spec/network/addresses
               valueFrom:
-                variable: controlPlaneMachine.address
+                template: |
+                  - '{{ .controlPlaneMachine.address }}'
         - selector:
             apiVersion: controlplane.cluster.x-k8s.io/v1beta2
             kind: KubeadmControlPlaneTemplate
@@ -261,13 +266,13 @@ spec:
               valueFrom:
                 template: |
                   - name: provider-id
-                    value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.local_hostname }}" }}'
+                    value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
             - op: add
               path: /spec/template/spec/kubeadmConfigSpec/joinConfiguration/nodeRegistration/kubeletExtraArgs
               valueFrom:
                 template: |
                   - name: provider-id
-                    value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.local_hostname }}" }}'
+                    value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
             - op: add
               path: /spec/template/spec/kubeadmConfigSpec/files
               valueFrom:
@@ -305,10 +310,12 @@ spec:
               path: /spec/template/spec/hostRef/name
               valueFrom:
                 variable: workerMachine.hostRef
+            # The whole list: CAPI rejects patches into array elements.
             - op: replace
-              path: /spec/template/spec/network/addresses/0
+              path: /spec/template/spec/network/addresses
               valueFrom:
-                variable: workerMachine.address
+                template: |
+                  - '{{ .workerMachine.address }}'
         - selector:
             apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
             kind: KubeadmConfigTemplate
@@ -321,7 +328,7 @@ spec:
               valueFrom:
                 template: |
                   - name: provider-id
-                    value: 'libvirt:///{{ .workerMachine.hostRef }}/{{ "{{ v1.local_hostname }}" }}'
+                    value: 'libvirt:///{{ .workerMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
             - op: add
               path: /spec/template/spec/files
               valueFrom:
@@ -368,7 +375,8 @@ spec:
         initConfiguration:
           nodeRegistration:
             # Rendered by cloud-init (jinja) from the local-hostname CAPLV
-            # writes into the NoCloud meta-data: the libvirt domain name.
+            # writes into the NoCloud meta-data: the libvirt domain name, or
+            # a shortened form when it is longer than 63 characters.
             name: '{{ v1.local_hostname }}'
         joinConfiguration:
           nodeRegistration:

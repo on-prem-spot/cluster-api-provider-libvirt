@@ -31,4 +31,8 @@ func TestBuildCloudInitISO(t *testing.T) {
 	if len(data) == 0 {
 		t.Fatal("BuildCloudInitISO returned empty data")
 	}
+	// cloud-init's NoCloud datasource finds the seed by its volume label and
+	// reads these exact file names.
+	assertVolumeID(t, data, "cidata")
+	assertFileNames(t, data, "user-data", "meta-data")
 }

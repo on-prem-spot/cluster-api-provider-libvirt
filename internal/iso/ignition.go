@@ -82,7 +82,8 @@ func (b *DiskfsBuilder) BuildIgnitionISO(ignitionData []byte) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("unexpected filesystem type")
 	}
-	if err := iso.Finalize(iso9660.FinalizeOptions{}); err != nil {
+	// As in BuildCloudInitISO: the label and Rock Ridge names are set here.
+	if err := iso.Finalize(iso9660.FinalizeOptions{VolumeIdentifier: "ignition", RockRidge: true}); err != nil {
 		return nil, fmt.Errorf("finalizing ISO: %w", err)
 	}
 

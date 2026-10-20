@@ -38,3 +38,7 @@ go.work
 
 # Generated release manifests (make build-installer)
 dist/
+
+# e2e suite output
+_artifacts/
+.e2e-libvirt/
