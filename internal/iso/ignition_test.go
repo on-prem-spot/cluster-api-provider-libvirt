@@ -31,4 +31,6 @@ func TestBuildIgnitionISO(t *testing.T) {
 	if len(data) == 0 {
 		t.Fatal("BuildIgnitionISO returned empty data")
 	}
+	assertVolumeID(t, data, "ignition")
+	assertFileNames(t, data, "config.ign")
 }

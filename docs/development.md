@@ -20,6 +20,15 @@ make podman-build IMG=ghcr.io/atgreen/caplv:latest
 make deploy IMG=ghcr.io/atgreen/caplv:latest
 ```
 
+## End-to-end tests
+
+`make test-e2e` deploys the manager to a kind cluster and checks that it
+starts. `make test-e2e-libvirt` runs Cluster API's quick-start spec against
+real KVM: it builds a kubeadm workload cluster from the `topology` flavor,
+checks it and deletes it. It needs a disposable Linux machine prepared as a
+libvirt host, and CI runs it on every pull request; see
+[test/e2e-libvirt/README.md](../test/e2e-libvirt/README.md).
+
 ## Project structure
 
 ```

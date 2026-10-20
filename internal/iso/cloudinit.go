@@ -81,7 +81,10 @@ func (b *DiskfsBuilder) BuildCloudInitISO(userData []byte, instanceID, hostname 
 	if !ok {
 		return nil, fmt.Errorf("unexpected filesystem type")
 	}
-	if err := iso.Finalize(iso9660.FinalizeOptions{}); err != nil {
+	// go-diskfs ignores FilesystemSpec.VolumeLabel for ISO9660; the label
+	// cloud-init looks for is set here. Rock Ridge keeps the file names: plain
+	// ISO9660 would store them as USER_DAT and META_DAT.
+	if err := iso.Finalize(iso9660.FinalizeOptions{VolumeIdentifier: "cidata", RockRidge: true}); err != nil {
 		return nil, fmt.Errorf("finalizing ISO: %w", err)
 	}
 

@@ -93,6 +93,17 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+E2E_LIBVIRT_IMG ?= ghcr.io/atgreen/caplv:e2e
+E2E_LIBVIRT_ARTIFACTS ?= $(shell pwd)/_artifacts
+
+.PHONY: test-e2e-libvirt
+test-e2e-libvirt: kustomize ## Run the Cluster API e2e suite against a real libvirt host; see test/e2e-libvirt/README.md.
+	$(MAKE) docker-build IMG=$(E2E_LIBVIRT_IMG)
+	cd test/e2e-libvirt && CAPI_KUSTOMIZE_PATH="$(KUSTOMIZE)" go test -tags=e2e -timeout=2h -v . -args \
+		-e2e.config="$(shell pwd)/test/e2e-libvirt/config/libvirt.yaml" \
+		-e2e.artifacts-folder="$(E2E_LIBVIRT_ARTIFACTS)" \
+		-ginkgo.v -ginkgo.timeout=2h
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run

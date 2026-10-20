@@ -1,13 +1,21 @@
-# CAPLV — *EXPERIMENTAL* Cluster API Provider for LibVirt
+# CAPLV — Cluster API Provider for LibVirt
 
-CAPLV is an *EXPERIMENTAL* [Cluster API](https://cluster-api.sigs.k8s.io/)
-infrastructure provider that provisions KVM virtual machines on libvirt
-hosts. It works standalone as a plain CAPI infrastructure provider —
-create `LibvirtMachine` and `Machine` resources directly to bring up
-workers — and pairs naturally with
-[5-Spot](https://github.com/finos/5-spot), which schedules OpenShift
-worker nodes on and off physical RHEL/KVM infrastructure based on
-time-of-day rules.
+CAPLV is a [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure
+provider that provisions KVM virtual machines on libvirt hosts. It can be
+used in three ways:
+
+- **Workers for an existing cluster.** Create `LibvirtMachine` and
+  `Machine` resources directly, with ignition or cloud-init bootstrap data,
+  to add VMs as nodes.
+- **With [5-Spot](https://github.com/finos/5-spot)**, which schedules
+  OpenShift worker nodes on and off physical RHEL/KVM infrastructure based
+  on time-of-day rules.
+- **New kubeadm clusters.** The `topology` flavor and its `libvirt-kubeadm`
+  ClusterClass build a complete workload cluster from cloud-init guests with
+  the core CAPI kubeadm providers.
+
+The API is `v1alpha1`; fields may still change before `v1beta2` (see
+[ADR 0003](docs/adr/0003-api-version-promotion.md)).
 
 The target hosts are machines with incumbent workloads — DR standby
 systems or servers with predictable load schedules that have idle
@@ -17,6 +25,8 @@ when backed by a tmpfs storage pool, won't touch persistent storage
 on the device at all.
 
 ## How It Works
+
+The 5-Spot flow, adding OpenShift workers to the cluster CAPLV runs on:
 
 ```
 5-Spot: schedule becomes active
@@ -35,7 +45,10 @@ on the device at all.
       → CAPLV destroys domain, cleans up all artifacts, deletes Node object
 ```
 
-CAPLV runs on the same OpenShift cluster that the worker VMs join.
+In this flow CAPLV runs on the same OpenShift cluster that the worker VMs
+join. With the `topology` flavor it runs on a management cluster and builds
+separate workload clusters, as any CAPI infrastructure provider does; see
+[Cluster templates](docs/cluster-templates.md).
 
 Each libvirt host runs exactly one CAPLV-managed VM — enforced by an
 admission webhook that rejects a second machine targeting the same host.
@@ -60,13 +73,14 @@ over its own SSH connection.
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Prerequisites, one-time cluster and host setup, creating a first worker directly or through 5-Spot |
 | [Session mode](docs/session-mode.md) | Running VMs under an unprivileged per-user libvirt daemon |
-| [Configuration](docs/configuration.md) | Ephemeral tmpfs storage, node labels, direct kernel boot, cluster-wide base images, private CAs, watch filters, feature gates, failure domains |
+| [Configuration](docs/configuration.md) | Ephemeral tmpfs storage, node labels, direct kernel boot, cluster-wide base images, private CAs, shared SSH credentials, `clusterctl move`, watch filters, feature gates, failure domains |
 | [Cluster templates](docs/cluster-templates.md) | `clusterctl generate cluster` flavors and their variables |
 | [Architecture](docs/architecture.md) | Design decisions, host security model, storage pools and host layout |
 | [Troubleshooting](docs/troubleshooting.md) | MachineHealthCheck setup, failure modes and recovery, known limitations |
 | [Development](docs/development.md) | Building, testing, code generation and project layout |
+| [E2E suite](test/e2e-libvirt/README.md) | The Cluster API e2e suite run against real KVM in CI, and how to run it elsewhere |
 | [API reference](docs/api-reference/v1alpha1.md) | Every field, default and validation rule, generated from `api/v1alpha1` |
-| [Architecture decision records](docs/adr/) | Rationale for host management, readiness and API version promotion |
+| [Architecture decision records](docs/adr/) | Rationale for host management, readiness, API version promotion, credential identities and `clusterctl move` |
 
 ## Compatibility
 
@@ -81,19 +95,36 @@ not a tested support range; release tags must be checked independently.
 series, and the CRDs carry only the `cluster.x-k8s.io/v1beta2` contract label.
 Status fields such as `initialization.provisioned` and the list-shaped
 `failureDomains` follow v1beta2, so CAPI releases that only implement the
-v1beta1 contract (v1.10 and earlier) are not supported. That declaration
-alone does not establish full contract compliance or ClusterClass support;
-see [ADR 0003](docs/adr/0003-api-version-promotion.md) for the remaining gaps
-and the promotion plan. Machine templates, host/IP allocation for scaling, and
-end-to-end lifecycle coverage remain open work. This tree's versions must not
-be read as verified compatibility for previously released binaries.
+v1beta1 contract (v1.10 and earlier) are not supported. See
+[ADR 0003](docs/adr/0003-api-version-promotion.md) for the remaining gaps and
+the promotion plan; host and IP allocation for scaling is the largest. This
+tree's versions must not be read as verified compatibility for previously
+released binaries.
+
+### Tested in CI
+
+Every pull request runs Cluster API's quick-start spec against real KVM
+([E2E suite](test/e2e-libvirt/README.md)): clusterctl installs CAPI, the
+kubeadm providers and CAPLV into a kind management cluster, and the
+`topology` flavor builds, checks and deletes a workload cluster of one
+control plane VM and one worker VM. That run covers:
+
+| Component | Version |
+| --- | --- |
+| Cluster API and kubeadm providers | v1.14.3 |
+| Management cluster | kind, Kubernetes v1.36.4 |
+| Workload cluster | kubeadm, Kubernetes v1.36.5, on Ubuntu 24.04 cloud-init guests |
+| Host | Ubuntu 24.04, libvirt 10.0, QEMU 8.2, system mode |
+
+The ignition bootstrap path, session mode, ephemeral storage and
+RHCOS/OpenShift workers are not covered by that run.
 
 Hosts need QEMU/KVM and libvirt tooling with the commands used by CAPLV, working
 storage pools, and OVMF for UEFI guests. Session mode additionally needs the
 bridge helper and user-session setup described in
 [Session mode](docs/session-mode.md).
-Test the exact host configuration and guest OS before rollout; no complete
-Kubernetes guest-version or libvirt-version matrix has been established yet.
+Test combinations other than the one above with your own host configuration
+and guest OS before rollout.
 
 ## License
 

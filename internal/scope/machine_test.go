@@ -17,6 +17,7 @@ limitations under the License.
 package scope
 
 import (
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,6 +64,30 @@ func TestDomainName(t *testing.T) {
 	expected := "ns-cluster-machine"
 	if got != expected {
 		t.Errorf("DomainName() = %q, want %q", got, expected)
+	}
+}
+
+func TestHostname(t *testing.T) {
+	s := newTestScope()
+	if got := s.Hostname(); got != s.DomainName() {
+		t.Errorf("Hostname() = %q, want the domain name when it fits", got)
+	}
+
+	// CAPI's generated names make long domain names common.
+	long := "quick-start-8qwqi3-quick-start-puyh8y-quick-start-puyh8y-ck9bm-8flmb"
+	got := hostnameFor(long)
+	if len(got) > maxHostnameLength {
+		t.Errorf("hostnameFor(%q) = %q, %d characters, want at most %d", long, got, len(got), maxHostnameLength)
+	}
+	if !strings.HasPrefix(got, long[:40]) {
+		t.Errorf("hostnameFor(%q) = %q, want it to start with the domain name", long, got)
+	}
+	if other := hostnameFor(long[:len(long)-1] + "x"); other == got {
+		t.Errorf("names differing after the cut both map to %q", got)
+	}
+	// A cut that lands on a hyphen must not leave a double hyphen.
+	if got := hostnameFor(strings.Repeat("a", 53) + "-" + strings.Repeat("b", 20)); strings.Contains(got, "--") {
+		t.Errorf("hostnameFor left a double hyphen: %q", got)
 	}
 }
 

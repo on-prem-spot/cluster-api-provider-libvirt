@@ -1,0 +1,105 @@
+name: E2E (libvirt)
+
+# The Cluster API e2e suite in test/e2e-libvirt against real KVM: the runner
+# is set up as a libvirt host, a kind management cluster runs CAPI, the
+# kubeadm providers and CAPLV, and the quick-start spec builds and deletes a
+# workload cluster of two VMs. It runs on its own rather than in test.yaml
+# because it takes much longer and does not gate image builds.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e-libvirt:
+    name: E2E Tests (libvirt)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      WORK_DIR: ${{ github.workspace }}/.e2e-libvirt
+      CONTAINER_TOOL: docker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            test/e2e-libvirt/go.sum
+
+      - name: Free disk space
+        # Two VM disks, the base image and the kind node image need more room
+        # than the runner leaves free.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Read the base image name
+        id: image
+        run: echo "name=$(awk '$1 == "BASE_IMAGE:" {print $2}' test/e2e-libvirt/config/libvirt.yaml)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the base image
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WORK_DIR }}/images
+          key: e2e-libvirt-${{ steps.image.outputs.name }}-${{ hashFiles('test/e2e-libvirt/scripts/bake-image.sh') }}
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Set up the libvirt host
+        run: test/e2e-libvirt/scripts/setup-host.sh
+
+      # Saved now rather than at the end of the job, so a failing suite does
+      # not mean rebuilding the image on the next run.
+      - name: Save the base image
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.WORK_DIR }}/images
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: Run the e2e suite
+        run: |
+          test/e2e-libvirt/scripts/capture-consoles.sh _artifacts/host &
+          make test-e2e-libvirt
+
+      - name: Collect host logs
+        if: always()
+        run: |
+          mkdir -p _artifacts/host
+          sudo virsh list --all > _artifacts/host/virsh-list.txt 2>&1 || true
+          sudo virsh net-dhcp-leases caplv-e2e > _artifacts/host/dhcp-leases.txt 2>&1 || true
+          sudo cp -r /var/log/libvirt _artifacts/host/libvirt 2>/dev/null || true
+          sudo journalctl -u libvirtd -u virtqemud -u ssh --no-pager > _artifacts/host/journal.txt 2>&1 || true
+          sudo chown -R "$(id -u):$(id -g)" _artifacts
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-libvirt-artifacts
+          path: _artifacts
+          retention-days: 7

@@ -134,10 +134,14 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message:            "Configure a control plane endpoint host and port",
 		ObservedGeneration: libvirtCluster.Generation,
 	}
+	eventMessage := condition.Message
 	if ready {
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = infrav1.ReasonClusterReady
-		condition.Message = fmt.Sprintf("Control plane endpoint %s:%d is configured", endpoint.Host, endpoint.Port)
+		// No message on a True condition: CAPI v1beta2 summarises it into the
+		// Cluster's Available condition as if it needed attention.
+		condition.Message = ""
+		eventMessage = fmt.Sprintf("Control plane endpoint %s:%d is configured", endpoint.Host, endpoint.Port)
 	}
 	// Copy, not alias: SetStatusCondition overwrites the element
 	// FindStatusCondition points at, so a retained pointer would always
@@ -157,7 +161,7 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			eventType = corev1.EventTypeWarning
 		}
 		recordEvent(r.Recorder, libvirtCluster, eventType, condition.Reason,
-			ActionProvision, "%s", condition.Message)
+			ActionProvision, "%s", eventMessage)
 	}
 	return ctrl.Result{}, nil
 }

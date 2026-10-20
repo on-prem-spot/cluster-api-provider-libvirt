@@ -443,13 +443,13 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 	// Apply user-declared Node labels and annotations once kubelet has
 	// registered the Node. Does not block readiness — the infra is ready
 	// when the domain is up; labelling is a follow-on step.
-	return r.reconcileNodeLabels(ctx, libvirtMachine, machineScope.DomainName(), providerID)
+	return r.reconcileNodeLabels(ctx, libvirtMachine, machineScope.Hostname(), providerID)
 }
 
 // nodeBelongsToMachine reports whether a Node is in fact the one this machine
 // provisioned, by comparing the providerID CAPLV injected into its ignition.
 //
-// The Node is looked up by the name ArtifactBaseName() builds, and that name is
+// The Node is looked up by the name Hostname() builds from ArtifactBaseName(),
 // an unescaped "<namespace>-<cluster>-<machine>" join: different (cluster,
 // machine) pairs collapse onto one string, so a name match alone does not
 // establish ownership. The second return value is false when the Node has not
@@ -1086,7 +1086,7 @@ func (r *LibvirtMachineReconciler) reconcileBootstrapArtifacts(ctx context.Conte
 
 	switch libvirtMachine.Spec.BootstrapFormat {
 	case infrav1.BootstrapFormatIgnition:
-		hostname := rc.machineScope.DomainName()
+		hostname := rc.machineScope.Hostname()
 		providerID := rc.machineScope.ProviderID()
 		injected, err := ignition.InjectMachineMetadata(bootstrapData, hostname, providerID)
 		if err != nil {
@@ -1133,7 +1133,9 @@ func (r *LibvirtMachineReconciler) reconcileBootstrapArtifacts(ctx context.Conte
 		if !isoExists {
 			log.Info("Creating cloud-init ISO", "iso", rc.bootstrapISO)
 			bootstrapStart := time.Now()
-			isoData, err := r.ISOBuilder.BuildCloudInitISO(bootstrapData, rc.domainName, rc.domainName)
+			// The instance ID carries the full domain name, which the provider
+			// ID is built from; the hostname may be shortened (see Hostname).
+			isoData, err := r.ISOBuilder.BuildCloudInitISO(bootstrapData, rc.domainName, rc.machineScope.Hostname())
 			if err != nil {
 				log.Error(err, "Terminal error", "operation", "building cloud-init ISO", "reason", infrav1.ReasonInvalidBootstrapData)
 				r.setTerminalError(libvirtMachine, infrav1.ReasonInvalidBootstrapData,
@@ -1716,7 +1718,7 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 	// Delete the Node object from the cluster if it exists and is genuinely
 	// this machine's. The name alone does not prove that (see
 	// nodeBelongsToMachine), and deleting a Node evicts its workloads.
-	nodeName := machineScope.DomainName()
+	nodeName := machineScope.Hostname()
 	node := &corev1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err == nil {
 		switch owned, known := nodeBelongsToMachine(node, machineScope.ProviderID()); {
