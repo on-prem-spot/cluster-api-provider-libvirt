@@ -51,9 +51,10 @@ providers:
   - name: libvirt
     type: InfrastructureProvider
     versions:
-      # Built from this checkout. The version only has to fall in a release
-      # series listed in metadata.yaml.
-      - name: v0.2.99
+      # Built from this checkout. clusterctl installs the latest version in
+      # the newest release series of metadata.yaml, so this has to be in that
+      # series: bump it when a release adds one.
+      - name: v0.3.99
         value: ../../../config/default
         contract: v1beta2
         replacements:
