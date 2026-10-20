@@ -201,3 +201,32 @@ func TestIdentityToLibvirtHosts(t *testing.T) {
 		t.Errorf("got %v, want only team-a/host1", got)
 	}
 }
+
+// Resolving an identity makes it an owner of its Secret, once, for
+// clusterctl move.
+func TestHostSSHSecret_IdentityOwnsSecret(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-key", Namespace: testIdentityNamespace},
+		Data:       map[string][]byte{"ssh-privatekey": []byte("identity-key")},
+	}
+	id := identity(&infrav1.AllowedNamespaces{})
+	id.UID = "identity-uid"
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(secret, id).Build()
+
+	for range 2 {
+		if _, err := hostSSHSecret(context.Background(), c, identityHost("team-a"), testIdentityNamespace); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	got := &corev1.Secret{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(secret), got); err != nil {
+		t.Fatalf("get secret: %v", err)
+	}
+	refs := got.OwnerReferences
+	if len(refs) != 1 || refs[0].Kind != "LibvirtClusterIdentity" || refs[0].Name != "shared" || refs[0].UID != "identity-uid" {
+		t.Fatalf("got owner references %+v, want one to LibvirtClusterIdentity shared", refs)
+	}
+	if refs[0].Controller != nil && *refs[0].Controller {
+		t.Error("owner reference should not be a controller reference")
+	}
+}

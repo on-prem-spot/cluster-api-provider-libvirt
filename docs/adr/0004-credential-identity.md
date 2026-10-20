@@ -70,7 +70,6 @@ admission time.
   is trusted. The documentation says to scope `allowedNamespaces` accordingly.
 - The manager needs `get;list;watch` on `libvirtclusteridentities` and on
   `namespaces`, the latter for label selectors.
-- `clusterctl move` does not move identities or their Secrets yet. CAPV
-  handles this with the `clusterctl.cluster.x-k8s.io/move-hierarchy` label
-  and an owner reference from the Secret to the identity. That can follow
-  without API changes.
+- `clusterctl move` support followed in ADR 0005, using CAPV's approach: the
+  `clusterctl.cluster.x-k8s.io/move-hierarchy` label and an owner reference
+  from the Secret to the identity.

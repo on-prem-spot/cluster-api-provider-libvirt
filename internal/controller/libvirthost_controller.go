@@ -78,6 +78,7 @@ type LibvirtHostReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts/finalizers,verbs=update
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines,verbs=list
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",namespace=system,resources=secrets,verbs=patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusteridentities,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 

@@ -84,6 +84,10 @@ kubectl create secret generic rhel-host-01-ssh-key \
   --from-file=ssh-privatekey=caplv_ed25519
 ```
 
+If you will ever move this management cluster with `clusterctl move`, also
+label the Secret `clusterctl.cluster.x-k8s.io/move=`; see
+[Moving to another management cluster](configuration.md#moving-to-another-management-cluster-clusterctl-move).
+
 To share one key across many hosts or namespaces and rotate it in one place,
 reference a `LibvirtClusterIdentity` with `identityRef` instead; see
 [Shared SSH credentials](configuration.md#shared-ssh-credentials-libvirtclusteridentity).
