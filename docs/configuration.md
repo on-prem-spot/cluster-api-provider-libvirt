@@ -400,8 +400,40 @@ kubectl -n caplv-system create secret generic caplv-fleet-ssh \
 
 The controller finds its namespace from the `POD_NAMESPACE` environment
 variable, which the shipped Deployment sets; override it with
-`--identity-namespace`. `clusterctl move` does not yet move identities or
-their Secrets.
+`--identity-namespace`. Each identity is made an owner of its Secret the
+first time a host connects with it, so `clusterctl move` carries the Secret
+along and deleting the identity deletes the Secret; see
+[Moving to another management cluster](#moving-to-another-management-cluster-clusterctl-move).
+
+## Moving to another management cluster (`clusterctl move`)
+
+`clusterctl move` copies the objects describing workload clusters from one
+management cluster to another, for example from a temporary kind cluster into
+a permanent one. Nothing on the hypervisors changes: the VMs keep running and
+the controllers on the target take over. CAPLV supports it as follows.
+
+| Object | Moved | Removed from the source |
+| --- | --- | --- |
+| `LibvirtCluster`, `LibvirtMachine` | With their `Cluster` | Yes |
+| `LibvirtHost` | All hosts in the moved namespace | Yes |
+| `secretRef` Secrets | Only if labelled (below) | Yes |
+| `LibvirtClusterIdentity` and its Secret | Always | No: other clusters may still use them |
+
+`secretRef` Secrets are not linked to anything move follows, so label each one:
+
+```bash
+kubectl label secret rhel-host-01-ssh-key clusterctl.cluster.x-k8s.io/move=
+```
+
+A Secret left behind shows on the target as a host with `Ready=False` and a
+message naming the missing Secret; copying it across fixes the host.
+
+Identity Secrets need no label, with two exceptions: an identity no host has
+connected with yet, whose Secret is not yet owned by it, and identities
+whose Secrets are in a namespace other than the manager's own (set with
+`--identity-namespace`), which the manager cannot write to. Label those
+Secrets as above. The design is recorded in
+[ADR 0005](adr/0005-clusterctl-move.md).
 
 ## Running multiple provider instances (`--watch-filter`)
 

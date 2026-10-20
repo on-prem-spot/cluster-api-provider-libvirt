@@ -23,6 +23,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
@@ -74,7 +76,29 @@ func identitySSHSecret(ctx context.Context, c client.Client, host *infrav1.Libvi
 	if err := c.Get(ctx, key, secret); err != nil {
 		return nil, fmt.Errorf("failed to get SSH secret %s of LibvirtClusterIdentity %s: %w", key, name, err)
 	}
+	if err := ensureIdentityOwnsSecret(ctx, c, identity, secret); err != nil {
+		// Ownership only matters to clusterctl move; never block a
+		// connection on it.
+		logf.FromContext(ctx).Error(err, "Failed to set owner reference on identity Secret",
+			"identity", name, "secret", key)
+	}
 	return secret, nil
+}
+
+// ensureIdentityOwnsSecret makes identity an owner of its Secret, so that
+// clusterctl move carries the Secret along with the identity and, because the
+// identity is cluster-scoped, leaves it in place on the source cluster too.
+// The reference is not a controller reference, so a Secret shared by several
+// identities keeps one per identity.
+func ensureIdentityOwnsSecret(ctx context.Context, c client.Client, identity *infrav1.LibvirtClusterIdentity, secret *corev1.Secret) error {
+	if owned, err := controllerutil.HasOwnerReference(secret.OwnerReferences, identity, c.Scheme()); err != nil || owned {
+		return err
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	if err := controllerutil.SetOwnerReference(identity, secret, c.Scheme()); err != nil {
+		return err
+	}
+	return c.Patch(ctx, secret, patch)
 }
 
 // identityAllowsNamespace reports whether identity admits namespace,

@@ -21,6 +21,31 @@ labels:
   includeTemplates: false
 
 patches:
+# clusterctl move only copies objects linked to a Cluster by owner references
+# unless their CRD asks for more. LibvirtHosts are shared inventory that no
+# Cluster owns, so "move" copies all of them; "move-hierarchy" on the
+# cluster-scoped identity also copies the Secret each identity owns, and
+# leaves both in place on the source. See docs/adr/0005-clusterctl-move.md.
+- target:
+    kind: CustomResourceDefinition
+    name: libvirthosts.infrastructure.cluster.x-k8s.io
+  patch: |-
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: libvirthosts.infrastructure.cluster.x-k8s.io
+      labels:
+        clusterctl.cluster.x-k8s.io/move: ""
+- target:
+    kind: CustomResourceDefinition
+    name: libvirtclusteridentities.infrastructure.cluster.x-k8s.io
+  patch: |-
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: libvirtclusteridentities.infrastructure.cluster.x-k8s.io
+      labels:
+        clusterctl.cluster.x-k8s.io/move-hierarchy: ""
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
 # patches here are for enabling the conversion webhook for each CRD
 # +kubebuilder:scaffold:crdkustomizewebhookpatch
