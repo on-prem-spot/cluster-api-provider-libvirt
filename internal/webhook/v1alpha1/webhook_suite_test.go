@@ -112,6 +112,21 @@ var _ = BeforeSuite(func() {
 	err = SetupLibvirtMachineWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = SetupLibvirtMachineTemplateWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupLibvirtClusterTemplateWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupLibvirtClusterWebhookWithManager(mgr, false)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupLibvirtHostWebhookWithManager(mgr, false)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupLibvirtClusterIdentityWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

@@ -82,6 +82,21 @@ spec:
                   hostKeyFingerprint is the SSH host key fingerprint (SHA256:...) used to
                   verify the identity of the remote host.
                 type: string
+              identityRef:
+                description: |-
+                  identityRef names a cluster-scoped LibvirtClusterIdentity holding the
+                  SSH private key, for credentials shared across hosts and namespaces
+                  and rotated in one place. The identity must allow this host's
+                  namespace. Exactly one of secretRef and identityRef must be set.
+                properties:
+                  name:
+                    description: name is the name of the LibvirtClusterIdentity.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               nvramTemplatePath:
                 default: /usr/share/OVMF/OVMF_VARS.fd
                 description: |-
@@ -114,8 +129,10 @@ spec:
                 type: object
               secretRef:
                 description: |-
-                  secretRef is a reference to a Secret containing the SSH private key
-                  for authenticating to the libvirt host.
+                  secretRef is a reference to a Secret in the host's namespace containing
+                  the SSH private key for authenticating to the libvirt host, under the
+                  `ssh-privatekey` key. Exactly one of secretRef and identityRef must be
+                  set.
                 properties:
                   name:
                     description: name is the name of the Secret.
@@ -144,9 +161,11 @@ spec:
                 minLength: 1
                 type: string
             required:
-            - secretRef
             - uri
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of secretRef and identityRef must be set
+              rule: has(self.secretRef) != has(self.identityRef)
           status:
             description: status defines the observed state of LibvirtHost.
             properties:

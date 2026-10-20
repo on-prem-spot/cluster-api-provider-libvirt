@@ -68,6 +68,9 @@ type LibvirtHostReconciler struct {
 	// WatchFilterValue, when non-empty, restricts reconciliation to objects
 	// labelled cluster.x-k8s.io/watch-filter=<value>.
 	WatchFilterValue string
+	// IdentityNamespace is the controller's namespace, where the Secrets of
+	// LibvirtClusterIdentities live.
+	IdentityNamespace string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch;create;update;patch;delete
@@ -75,6 +78,8 @@ type LibvirtHostReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts/finalizers,verbs=update
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines,verbs=list
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusteridentities,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // Reconcile performs a connectivity check against the libvirt host and updates status.
 // Health checks only requeue when machines actively reference this host.
@@ -139,25 +144,10 @@ func (r *LibvirtHostReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *LibvirtHostReconciler) performHealthCheck(ctx context.Context, host *infrav1.LibvirtHost) {
 	log := logf.FromContext(ctx)
 
-	// secretRef is required.
-	if host.Spec.SecretRef == nil {
-		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "spec.secretRef is required for SSH connectivity")
-		return
-	}
-
-	// Fetch the SSH secret. The reference is confined to this host's own
-	// namespace; see resolveSecretNamespace.
-	secretNS, err := resolveSecretNamespace(host.Spec.SecretRef.Namespace, host.Namespace, "spec.secretRef.namespace")
+	secret, err := hostSSHSecret(ctx, r.Client, host, r.IdentityNamespace)
 	if err != nil {
-		log.Error(err, "Rejected Secret reference")
-		r.markUnreachable(host, infrav1.ReasonConnectionFailed, err.Error())
-		return
-	}
-	secret := &corev1.Secret{}
-	secretKey := types.NamespacedName{Namespace: secretNS, Name: host.Spec.SecretRef.Name}
-	if err := r.Get(ctx, secretKey, secret); err != nil {
-		log.Error(err, "Failed to get SSH secret", "secret", secretKey)
-		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "Failed to get SSH secret: "+err.Error())
+		log.Error(err, "Failed to resolve SSH credentials")
+		r.markUnreachable(host, infrav1.ReasonConnectionFailed, "Failed to resolve SSH credentials: "+err.Error())
 		return
 	}
 
@@ -318,6 +308,28 @@ func healthCheckIntervalForHost(host *infrav1.LibvirtHost) time.Duration {
 	return hostActiveRequeueInterval
 }
 
+// identityToLibvirtHosts maps a LibvirtClusterIdentity to the LibvirtHosts,
+// in any namespace, whose spec.identityRef names it.
+func (r *LibvirtHostReconciler) identityToLibvirtHosts(ctx context.Context, obj client.Object) []ctrl.Request {
+	var opts []client.ListOption
+	if r.WatchFilterValue != "" {
+		opts = append(opts, client.MatchingLabels{clusterv1.WatchLabel: r.WatchFilterValue})
+	}
+	hosts := &infrav1.LibvirtHostList{}
+	if err := r.List(ctx, hosts, opts...); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list LibvirtHosts", "identity", obj.GetName())
+		return nil
+	}
+	var requests []ctrl.Request
+	for i := range hosts.Items {
+		host := &hosts.Items[i]
+		if host.Spec.IdentityRef != nil && host.Spec.IdentityRef.Name == obj.GetName() {
+			requests = append(requests, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(host)})
+		}
+	}
+	return requests
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *LibvirtHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -341,6 +353,9 @@ func (r *LibvirtHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}}
 			},
 		), builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
+		// Recheck the hosts using an identity when it changes, so a new
+		// Secret or a narrowed allowedNamespaces shows in host status.
+		Watches(&infrav1.LibvirtClusterIdentity{}, handler.EnqueueRequestsFromMapFunc(r.identityToLibvirtHosts)).
 		Named("libvirthost").
 		Complete(r)
 }

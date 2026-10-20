@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -66,7 +67,7 @@ type LibvirtHostCustomValidator struct {
 
 // ValidateCreate implements webhook.CustomValidator.
 func (v *LibvirtHostCustomValidator) ValidateCreate(
-	_ context.Context,
+	ctx context.Context,
 	obj *infrastructurev1alpha1.LibvirtHost,
 ) (admission.Warnings, error) {
 	libvirthostlog.Info("Validation for LibvirtHost upon creation", "name", obj.GetName())
@@ -74,7 +75,7 @@ func (v *LibvirtHostCustomValidator) ValidateCreate(
 	if errs := validateHostSpec(obj); len(errs) > 0 {
 		return nil, invalidHost(obj, errs)
 	}
-	return v.hostKeyWarnings(obj.Spec), nil
+	return append(v.hostKeyWarnings(obj.Spec), v.identityWarnings(ctx, obj)...), nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator.
@@ -99,7 +100,7 @@ func (v *LibvirtHostCustomValidator) ValidateUpdate(
 	if len(allErrs) > 0 {
 		return nil, invalidHost(newObj, allErrs)
 	}
-	return v.hostKeyWarnings(newObj.Spec), nil
+	return append(v.hostKeyWarnings(newObj.Spec), v.identityWarnings(ctx, newObj)...), nil
 }
 
 // ValidateDelete implements webhook.CustomValidator.
@@ -127,10 +128,19 @@ func validateHostSpec(host *infrastructurev1alpha1.LibvirtHost) field.ErrorList 
 		allErrs = append(allErrs, field.Invalid(specPath.Child("uri"), spec.URI, err.Error()))
 	}
 
-	if spec.SecretRef == nil || spec.SecretRef.Name == "" {
+	switch {
+	case spec.SecretRef != nil && spec.IdentityRef != nil:
+		allErrs = append(allErrs, field.Forbidden(specPath.Child("identityRef"),
+			"set either secretRef or identityRef, not both"))
+	case spec.IdentityRef != nil:
+		if spec.IdentityRef.Name == "" {
+			allErrs = append(allErrs, field.Required(specPath.Child("identityRef", "name"),
+				"the name of a LibvirtClusterIdentity is required"))
+		}
+	case spec.SecretRef == nil || spec.SecretRef.Name == "":
 		allErrs = append(allErrs, field.Required(specPath.Child("secretRef", "name"),
-			"a Secret holding the SSH private key is required"))
-	} else if ns := spec.SecretRef.Namespace; ns != "" && ns != host.Namespace {
+			"a Secret holding the SSH private key, or an identityRef, is required"))
+	case spec.SecretRef.Namespace != "" && spec.SecretRef.Namespace != host.Namespace:
 		// The controller refuses this at reconcile time too; rejecting it here
 		// reports the mistake to the author instead of in host status.
 		allErrs = append(allErrs, field.Forbidden(specPath.Child("secretRef", "namespace"),
@@ -190,6 +200,45 @@ func (v *LibvirtHostCustomValidator) hostKeyWarnings(spec infrastructurev1alpha1
 	}
 	return admission.Warnings{"spec.hostKeyFingerprint is unset; the controller will refuse to connect to this " +
 		"host unless the manager runs with --allow-insecure-host-keys"}
+}
+
+// identityWarnings warns when spec.identityRef names an identity that is
+// missing or does not allow the host's namespace. These are warnings, not
+// errors: the identity may be created or widened later, and the controller
+// checks again on every connection.
+func (v *LibvirtHostCustomValidator) identityWarnings(
+	ctx context.Context,
+	host *infrastructurev1alpha1.LibvirtHost,
+) admission.Warnings {
+	if v.Client == nil || host.Spec.IdentityRef == nil || host.Spec.IdentityRef.Name == "" {
+		return nil
+	}
+	name := host.Spec.IdentityRef.Name
+	identity := &infrastructurev1alpha1.LibvirtClusterIdentity{}
+	if err := v.Client.Get(ctx, client.ObjectKey{Name: name}, identity); err != nil {
+		if apierrors.IsNotFound(err) {
+			return admission.Warnings{fmt.Sprintf("LibvirtClusterIdentity %q does not exist yet; "+
+				"the controller cannot connect to this host until it does", name)}
+		}
+		return nil
+	}
+	var nsLabels map[string]string
+	if identity.NeedsNamespaceLabels() {
+		ns := &corev1.Namespace{}
+		if err := v.Client.Get(ctx, client.ObjectKey{Name: host.Namespace}, ns); err != nil {
+			return nil
+		}
+		nsLabels = ns.Labels
+	}
+	allowed, err := identity.AllowsNamespace(host.Namespace, nsLabels)
+	if err != nil {
+		return admission.Warnings{err.Error()}
+	}
+	if !allowed {
+		return admission.Warnings{fmt.Sprintf("LibvirtClusterIdentity %q does not allow namespace %q in "+
+			"spec.allowedNamespaces; the controller will refuse to use it for this host", name, host.Namespace)}
+	}
+	return nil
 }
 
 func invalidHost(obj *infrastructurev1alpha1.LibvirtHost, allErrs field.ErrorList) error {

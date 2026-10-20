@@ -80,6 +80,7 @@ func main() {
 	var allowInsecureHostKeys bool
 	var allowInsecureImageTransport bool
 	var watchFilterValue string
+	var identityNamespace string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -117,6 +118,9 @@ func main() {
 		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. "+
 			"Label key is always %s. If unspecified, the controller watches for all cluster-api objects.",
 			clusterv1.WatchLabel))
+	flag.StringVar(&identityNamespace, "identity-namespace", os.Getenv("POD_NAMESPACE"),
+		"Namespace holding the Secrets of LibvirtClusterIdentities. Defaults to $POD_NAMESPACE, "+
+			"which the shipped manager Deployment sets to the controller's own namespace.")
 	opts := zap.Options{
 		Development: false,
 	}
@@ -216,6 +220,7 @@ func main() {
 		LibvirtClientFactory: libvirtClientFactory,
 		Recorder:             mgr.GetEventRecorder("libvirthost-controller"),
 		WatchFilterValue:     watchFilterValue,
+		IdentityNamespace:    identityNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtHost")
 		os.Exit(1)
@@ -254,6 +259,7 @@ func main() {
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 		Recorder:                mgr.GetEventRecorder("libvirtmachine-controller"),
 		WatchFilterValue:        watchFilterValue,
+		IdentityNamespace:       identityNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtMachine")
 		os.Exit(1)
@@ -286,6 +292,10 @@ func main() {
 		}
 		if err := webhookv1alpha1.SetupLibvirtHostWebhookWithManager(mgr, allowInsecureHostKeys); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtHost")
+			os.Exit(1)
+		}
+		if err := webhookv1alpha1.SetupLibvirtClusterIdentityWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtClusterIdentity")
 			os.Exit(1)
 		}
 	}

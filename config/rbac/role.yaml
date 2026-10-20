@@ -7,6 +7,15 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - nodes
   verbs:
   - delete
@@ -14,14 +23,6 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - ""
@@ -61,6 +62,14 @@ rules:
   - clusters/status
   - machines
   - machines/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - libvirtclusteridentities
   verbs:
   - get
   - list

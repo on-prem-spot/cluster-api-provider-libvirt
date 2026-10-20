@@ -10,6 +10,7 @@ Package v1alpha1 contains API Schema definitions for the infrastructure v1alpha1
 
 ### Resource Types
 - [LibvirtCluster](#libvirtcluster)
+- [LibvirtClusterIdentity](#libvirtclusteridentity)
 - [LibvirtClusterTemplate](#libvirtclustertemplate)
 - [LibvirtHost](#libvirthost)
 - [LibvirtMachine](#libvirtmachine)
@@ -51,6 +52,23 @@ _Appears in:_
 | `size` _[Quantity](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#quantity-resource-api)_ | size is the desired size of the disk. |  | Required: \{\} <br /> |
 | `storagePool` _string_ | storagePool is the name of the libvirt storage pool to use. |  | MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.:-]+$` <br />Required: \{\} <br /> |
 | `bus` _string_ | bus is the disk bus type. | virtio | Optional: \{\} <br /> |
+
+
+#### AllowedNamespaces
+
+
+
+AllowedNamespaces selects namespaces by name or by label.
+
+
+
+_Appears in:_
+- [LibvirtClusterIdentitySpec](#libvirtclusteridentityspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `list` _string array_ | list names the allowed namespaces. |  | MaxItems: 256 <br />items:MaxLength: 63 <br />items:MinLength: 1 <br />Optional: \{\} <br /> |
+| `selector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | selector selects allowed namespaces by their labels. An empty selector<br />(\{\}) matches every namespace. |  | Optional: \{\} <br /> |
 
 
 #### BaseImageSource
@@ -355,6 +373,62 @@ It fulfills the Cluster API infrastructure cluster contract.
 | `status` _[LibvirtClusterStatus](#libvirtclusterstatus)_ | status defines the observed state of LibvirtCluster. |  | Optional: \{\} <br /> |
 
 
+#### LibvirtClusterIdentity
+
+
+
+LibvirtClusterIdentity is a cluster-scoped SSH credential that LibvirtHosts
+in the namespaces it allows can reference with spec.identityRef instead of
+carrying their own spec.secretRef. Its Secret lives in the controller's
+namespace, so the authors of those hosts use the credential without being
+able to read it.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `infrastructure.cluster.x-k8s.io/v1alpha1` | | |
+| `kind` _string_ | `LibvirtClusterIdentity` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `spec` _[LibvirtClusterIdentitySpec](#libvirtclusteridentityspec)_ | spec defines the desired state of LibvirtClusterIdentity |  | Required: \{\} <br /> |
+
+
+#### LibvirtClusterIdentityReference
+
+
+
+LibvirtClusterIdentityReference names a LibvirtClusterIdentity.
+
+
+
+_Appears in:_
+- [LibvirtHostSpec](#libvirthostspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | name is the name of the LibvirtClusterIdentity. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+
+
+#### LibvirtClusterIdentitySpec
+
+
+
+LibvirtClusterIdentitySpec defines the SSH credential an identity holds and
+the namespaces whose LibvirtHosts may use it.
+
+
+
+_Appears in:_
+- [LibvirtClusterIdentity](#libvirtclusteridentity)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `secretName` _string_ | secretName is the name of a Secret in the controller's namespace holding<br />the SSH private key under the `ssh-privatekey` key, the same shape as a<br />LibvirtHost's spec.secretRef Secret. The controller reads it on every<br />connection, so replacing the key in the Secret, or pointing secretName<br />at a new Secret, rotates the credential for every host using this<br />identity without editing the hosts. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `allowedNamespaces` _[AllowedNamespaces](#allowednamespaces)_ | allowedNamespaces selects the namespaces whose LibvirtHosts may use<br />this identity. A namespace is allowed if it is in list or matches<br />selector. An empty allowedNamespaces (\{\}) allows every namespace.<br />When unset, no namespace may use the identity. |  | Optional: \{\} <br /> |
+
+
 #### LibvirtClusterInitializationStatus
 
 
@@ -511,7 +585,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `uri` _string_ | uri is the libvirt connection URI (e.g. qemu+ssh://user@host/system).<br />The path selects the libvirt daemon on the host: /system (default)<br />connects to the privileged system daemon; /session connects to the<br />per-user daemon of the SSH user. Session mode requires host setup for<br />unprivileged networking (qemu-bridge-helper) and only supports<br />network.type=bridge on machines. |  | MinLength: 1 <br />Required: \{\} <br /> |
-| `secretRef` _[SecretReference](#secretreference)_ | secretRef is a reference to a Secret containing the SSH private key<br />for authenticating to the libvirt host. |  | Required: \{\} <br /> |
+| `secretRef` _[SecretReference](#secretreference)_ | secretRef is a reference to a Secret in the host's namespace containing<br />the SSH private key for authenticating to the libvirt host, under the<br />`ssh-privatekey` key. Exactly one of secretRef and identityRef must be<br />set. |  | Optional: \{\} <br /> |
+| `identityRef` _[LibvirtClusterIdentityReference](#libvirtclusteridentityreference)_ | identityRef names a cluster-scoped LibvirtClusterIdentity holding the<br />SSH private key, for credentials shared across hosts and namespaces<br />and rotated in one place. The identity must allow this host's<br />namespace. Exactly one of secretRef and identityRef must be set. |  | Optional: \{\} <br /> |
 | `hostKeyFingerprint` _string_ | hostKeyFingerprint is the SSH host key fingerprint (SHA256:...) used to<br />verify the identity of the remote host. |  | Optional: \{\} <br /> |
 | `firmwarePath` _string_ | firmwarePath overrides the OVMF firmware path on the host. | /usr/share/OVMF/OVMF_CODE.secboot.fd | Optional: \{\} <br /> |
 | `nvramTemplatePath` _string_ | nvramTemplatePath is the UEFI VARS template on the host that each<br />machine's private NVRAM file is initialized from (the domain XML's<br /><nvram template=...>). It should be the VARS file matching the<br />firmwarePath loader build. | /usr/share/OVMF/OVMF_VARS.fd | Optional: \{\} <br /> |

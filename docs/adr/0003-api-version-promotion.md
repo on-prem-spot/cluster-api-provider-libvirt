@@ -81,8 +81,10 @@ version makes clear which contract the API was designed against.
    - remove `status.ready`, `status.failureReason`, `status.failureMessage`
      (or move them under a `status.deprecated` block, as CAPI core did);
    - remove the deprecated `SecretReference.namespace`;
-   - decide credential management (#41, a `LibvirtClusterIdentity`) so
-     `LibvirtHost.spec.secretRef` is not frozen in its current form;
+   - *(Decided in [ADR 0004](0004-credential-identity.md).)* decide
+     credential management (#41) so `LibvirtHost.spec.secretRef` is not frozen
+     in its current form. v1alpha1 now has a cluster-scoped
+     `LibvirtClusterIdentity` that hosts reference with `spec.identityRef`;
    - decide host and address allocation: whether `spec.hostRef` becomes
      optional and is resolved from the failure domain CAPI chooses, and how
      static addresses are assigned per machine (e.g. CAPI IPAM);
