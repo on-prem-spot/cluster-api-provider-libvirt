@@ -482,6 +482,11 @@ func (in *LibvirtClusterList) DeepCopyObject() runtime.Object {
 func (in *LibvirtClusterSpec) DeepCopyInto(out *LibvirtClusterSpec) {
 	*out = *in
 	out.ControlPlaneEndpoint = in.ControlPlaneEndpoint
+	if in.ControlPlaneHostSelector != nil {
+		in, out := &in.ControlPlaneHostSelector, &out.ControlPlaneHostSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.BootArtifacts != nil {
 		in, out := &in.BootArtifacts, &out.BootArtifacts
 		*out = new(BootArtifactsSpec)

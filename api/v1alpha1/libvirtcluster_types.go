@@ -34,6 +34,15 @@ type LibvirtClusterSpec struct {
 	// +optional
 	ControlPlaneEndpoint APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
 
+	// controlPlaneHostSelector picks the LibvirtHosts that may run control
+	// plane machines. Every host in the namespace is a failure domain; only
+	// hosts matching this selector are marked control plane eligible, so
+	// KubeadmControlPlane spreads its machines across those hosts alone. Set
+	// it to the selector control plane machines use. Unset, every host is
+	// eligible.
+	// +optional
+	ControlPlaneHostSelector *metav1.LabelSelector `json:"controlPlaneHostSelector,omitempty"`
+
 	// bootArtifacts, when set, switches first-boot ignition delivery from
 	// QEMU fw_cfg to libvirt direct-kernel-boot plus a virtio-blk ignition
 	// disk. The kernel's qemu_fw_cfg driver does O(n²) offset reads, which

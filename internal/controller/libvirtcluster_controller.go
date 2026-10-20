@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -118,7 +119,7 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	failureDomains, err := r.failureDomains(ctx, libvirtCluster.Namespace)
+	failureDomains, err := r.failureDomains(ctx, libvirtCluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -166,12 +167,25 @@ func (r *LibvirtClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-// failureDomains reports one failure domain per LibvirtHost in namespace.
-// Hosts being deleted are left out so new machines are not steered to them.
-// All hosts are control-plane eligible: CAPLV has no notion of a host that
-// may only run workers.
-func (r *LibvirtClusterReconciler) failureDomains(ctx context.Context, namespace string) ([]infrav1.FailureDomain, error) {
-	opts := []client.ListOption{client.InNamespace(namespace)}
+// failureDomains reports one failure domain per LibvirtHost in the cluster's
+// namespace. Hosts being deleted are left out so new machines are not steered
+// to them. A host is control plane eligible when it matches
+// spec.controlPlaneHostSelector, or always when that is unset.
+//
+// KubeadmControlPlane gives each of its machines one of the eligible failure
+// domains, and a host-selected machine then takes only that host, so marking
+// a host eligible that control plane machines cannot select would leave a
+// control plane machine waiting for it.
+func (r *LibvirtClusterReconciler) failureDomains(ctx context.Context, cluster *infrav1.LibvirtCluster) ([]infrav1.FailureDomain, error) {
+	controlPlane := labels.Everything()
+	if cluster.Spec.ControlPlaneHostSelector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(cluster.Spec.ControlPlaneHostSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid spec.controlPlaneHostSelector: %w", err)
+		}
+		controlPlane = selector
+	}
+	opts := []client.ListOption{client.InNamespace(cluster.Namespace)}
 	if r.WatchFilterValue != "" {
 		opts = append(opts, client.MatchingLabels{clusterv1.WatchLabel: r.WatchFilterValue})
 	}
@@ -185,7 +199,10 @@ func (r *LibvirtClusterReconciler) failureDomains(ctx context.Context, namespace
 		if !host.DeletionTimestamp.IsZero() {
 			continue
 		}
-		domains = append(domains, infrav1.FailureDomain{Name: host.Name, ControlPlane: ptr.To(true)})
+		domains = append(domains, infrav1.FailureDomain{
+			Name:         host.Name,
+			ControlPlane: ptr.To(controlPlane.Matches(labels.Set(host.Labels))),
+		})
 	}
 	// List order is not guaranteed; a stable order keeps the status patch,
 	// and CAPI's copy of it, from changing on every reconcile.
