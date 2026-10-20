@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/scope"
 )
 
 func TestLibvirtMachineForNode_HonoursWatchFilter(t *testing.T) {
@@ -59,5 +60,35 @@ func TestLibvirtMachineForNode_HonoursWatchFilter(t *testing.T) {
 		if (got != nil) != tc.found {
 			t.Errorf("filter %q: found=%v, want %v", tc.filter, got != nil, tc.found)
 		}
+	}
+}
+
+// A node whose domain name is too long for a hostname registers under the
+// shortened hostname CAPLV gives the guest, and is still recognised.
+func TestLibvirtMachineForNode_MatchesShortenedHostname(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := infrav1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := clusterv1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	const namespace, cluster, name = "quick-start-8qwqi3", "quick-start-puyh8y", "quick-start-puyh8y-ck9bm-8flmb"
+	machine := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: namespace,
+			Labels: map[string]string{clusterv1.ClusterNameLabel: cluster}},
+		Spec: clusterv1.MachineSpec{ClusterName: cluster, InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+			APIGroup: infrav1.GroupVersion.Group, Kind: "LibvirtMachine", Name: name}},
+	}
+	lm := &infrav1.LibvirtMachine{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(machine, lm).Build()
+	r := &CSRApproverReconciler{Client: c, Scheme: s}
+
+	hostname := scope.HostnameFor(namespace + "-" + cluster + "-" + name)
+	if len(hostname) > 63 {
+		t.Fatalf("test setup: hostname %q is not shortened", hostname)
+	}
+	if got := r.libvirtMachineForNode(context.Background(), hostname); got == nil {
+		t.Errorf("node %q was not matched to its LibvirtMachine", hostname)
 	}
 }

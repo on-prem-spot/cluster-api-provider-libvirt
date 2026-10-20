@@ -35,6 +35,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
+	"github.com/on-prem-spot/cluster-api-provider-libvirt/internal/scope"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
@@ -153,10 +154,11 @@ func (r *CSRApproverReconciler) libvirtMachineForNode(ctx context.Context, nodeN
 			continue
 		}
 
-		// The domain name is <namespace>-<cluster>-<machine> which is
-		// also the hostname we inject into ignition.
+		// The domain name is <namespace>-<cluster>-<machine>; the node is
+		// named after the hostname CAPLV derives from it, which differs
+		// when the domain name is longer than a hostname may be.
 		domainName := fmt.Sprintf("%s-%s-%s", lm.Namespace, machine.Labels["cluster.x-k8s.io/cluster-name"], lm.Name)
-		if domainName == nodeName {
+		if scope.HostnameFor(domainName) == nodeName {
 			return lm
 		}
 	}

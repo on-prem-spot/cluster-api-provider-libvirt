@@ -104,10 +104,11 @@ const maxHostnameLength = 63
 // and otherwise a prefix of it with a hash of the whole name appended, so
 // distinct machines keep distinct hostnames.
 func (s *MachineScope) Hostname() string {
-	return hostnameFor(s.DomainName())
+	return HostnameFor(s.DomainName())
 }
 
-func hostnameFor(domainName string) string {
+// HostnameFor returns the guest hostname for a domain name; see Hostname.
+func HostnameFor(domainName string) string {
 	if len(domainName) <= maxHostnameLength {
 		return domainName
 	}
