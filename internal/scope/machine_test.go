@@ -91,6 +91,21 @@ func TestHostname(t *testing.T) {
 	}
 }
 
+func TestMACAddress(t *testing.T) {
+	s := newTestScope()
+	derived := s.MACAddress()
+	if !strings.HasPrefix(derived, "52:54:00:") || len(derived) != len("52:54:00:00:00:00") {
+		t.Errorf("MACAddress() = %q, want a 52:54:00 address", derived)
+	}
+	if again := s.MACAddress(); again != derived {
+		t.Errorf("MACAddress() changed between calls: %q then %q", derived, again)
+	}
+	s.LibvirtMachine.Spec.Network.MACAddress = "52:54:00:12:34:56"
+	if got := s.MACAddress(); got != "52:54:00:12:34:56" {
+		t.Errorf("MACAddress() = %q, want the one set in the spec", got)
+	}
+}
+
 func TestRootDiskVolumeName(t *testing.T) {
 	s := newTestScope()
 	got := s.RootDiskVolumeName()

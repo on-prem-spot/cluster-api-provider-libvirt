@@ -27,12 +27,20 @@ and [readiness and bootstrap](adr/0002-readiness-and-bootstrap.md).
 - **Ephemeral storage** — `ephemeralPool: true` creates a per-machine tmpfs
   mount and libvirt pool on demand, destroys both on cleanup. No host setup
   required, no persistent storage touched, RAM reclaimed when the VM goes away.
-- **Metadata injection** — CAPLV injects the machine hostname and providerID
-  into ignition configs before writing them to the host. The hostname is set
-  via `/etc/hostname` (using the domain name `<namespace>-<cluster>-<machine>`)
-  and the providerID is set via a kubelet systemd drop-in. For ignition
-  (OpenShift/RHCOS), the config is delivered via QEMU `fw_cfg` — the standard
-  libvirt method, no ISO needed. For cloud-init, a NoCloud ISO is created.
+- **Metadata injection** — CAPLV injects the machine hostname, providerID and
+  static network configuration into ignition configs before writing them to
+  the host. The hostname is set via `/etc/hostname` and the providerID via a
+  kubelet systemd drop-in. For ignition (OpenShift/RHCOS), the config is
+  delivered via QEMU `fw_cfg` — the standard libvirt method, no ISO needed.
+  For cloud-init, a NoCloud ISO carries the user data, the hostname and
+  instance ID (`meta-data`), and a `network-config` with the machine's
+  static addresses, matched to the NIC by MAC address.
+- **Names** — The domain name is `<namespace>-<cluster>-<machine>`, and the
+  providerID is `libvirt:///<host>/<domain name>`. The guest hostname, and so
+  the Node name, is the domain name when it fits in 63 characters and
+  otherwise a prefix of it ending in a hash of the whole name. Unless
+  `spec.network.macAddress` is set, the NIC's MAC address is derived from the
+  domain name.
 - **Built-in CSR approver** — CAPLV includes a CSR approver controller that
   auto-approves kubelet CSRs (both bootstrap and serving) for nodes whose
   hostname matches a CAPI Machine backed by a LibvirtMachine. No external

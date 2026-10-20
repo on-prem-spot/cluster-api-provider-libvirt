@@ -21,6 +21,8 @@
 #
 # Environment:
 #   WORK_DIR            holds the SSH key and the built image, which CI caches
+#   GUEST               the guest image to build: ubuntu-24.04 (default) or
+#                       centos-stream-9
 #   KUBERNETES_VERSION  baked into the base image; default from the e2e config
 #   BASE_IMAGE          base image volume name; default from the e2e config
 #
@@ -49,7 +51,25 @@ NETWORK_BRIDGE=virbr-e2e
 NETWORK_PREFIX=192.168.150
 # Memory each VM gets; each LibvirtHost reserves the rest of the host's.
 VM_MEMORY_MB=4096
-UBUNTU_IMAGE_URL=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+GUEST=${GUEST:-ubuntu-24.04}
+case "$GUEST" in
+  ubuntu-24.04)
+    GUEST_IMAGE_URL=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+    GUEST_OSINFO=ubuntu24.04
+    BAKE_SCRIPT=bake-ubuntu.sh
+    PACKAGE_RELEASE=-1.1
+    ;;
+  centos-stream-9)
+    GUEST_IMAGE_URL=https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2
+    GUEST_OSINFO=centos-stream9
+    BAKE_SCRIPT=bake-el.sh
+    PACKAGE_RELEASE=
+    ;;
+  *)
+    echo "Unknown GUEST $GUEST; use ubuntu-24.04 or centos-stream-9" >&2
+    exit 1
+    ;;
+esac
 
 log() { echo "==> $*" >&2; }
 
@@ -146,16 +166,16 @@ build_base_image() {
   fi
 
   # Boot the cloud image once on the caplv-e2e network and let cloud-init
-  # run bake-image.sh, then reset cloud-init and power off, so the disk
+  # run the bake script, then reset cloud-init and power off, so the disk
   # boots as a fresh instance next time. (virt-customize would avoid the
   # boot, but Ubuntu's libguestfs cannot give its appliance a network on
   # these runners.)
-  log "Building $BASE_IMAGE with Kubernetes $KUBERNETES_VERSION"
+  log "Building $BASE_IMAGE ($GUEST) with Kubernetes $KUBERNETES_VERSION"
   local version=${KUBERNETES_VERSION#v}
   local images=/var/lib/libvirt/images
   local tmp
   tmp=$(mktemp -d)
-  curl -fsSL -o "$tmp/base.img" "$UBUNTU_IMAGE_URL"
+  curl -fsSL -o "$tmp/base.img" "$GUEST_IMAGE_URL"
   # Room for the packages; cloud-init grows the root filesystem to fit.
   qemu-img resize "$tmp/base.img" +3G
   sudo install -m 0644 "$tmp/base.img" "$images/caplv-e2e-bake.qcow2"
@@ -163,18 +183,18 @@ build_base_image() {
   cat >"$tmp/user-data" <<USERDATA
 #cloud-config
 write_files:
-  - path: /root/bake-image.sh
+  - path: /root/bake.sh
     permissions: "0755"
     encoding: b64
-    content: $(base64 -w0 "$SCRIPT_DIR/bake-image.sh")
+    content: $(base64 -w0 "$SCRIPT_DIR/$BAKE_SCRIPT")
 runcmd:
   # Output reaches the serial console through cloud-final.service.
   - - sh
     - -c
     - >-
-      K8S_MINOR=${version%.*} K8S_PACKAGE_VERSION=${version}-1.1 /root/bake-image.sh 2>&1
+      K8S_MINOR=${version%.*} K8S_PACKAGE_VERSION=${version}${PACKAGE_RELEASE} /root/bake.sh 2>&1
       && echo CAPLV-BAKE-OK || echo CAPLV-BAKE-FAILED
-  - [sh, -c, "rm -f /root/bake-image.sh && cloud-init clean --logs --machine-id"]
+  - [sh, -c, "rm -f /root/bake.sh && cloud-init clean --logs --machine-id"]
 power_state:
   mode: poweroff
   timeout: 30
@@ -185,7 +205,7 @@ USERDATA
 
   local console="$WORK_DIR/bake-console.log"
   sudo virt-install --name caplv-e2e-bake --memory 2048 --vcpus 2 --import \
-    --osinfo ubuntu24.04 \
+    --osinfo "$GUEST_OSINFO" \
     --disk "path=$images/caplv-e2e-bake.qcow2,format=qcow2" \
     --disk "path=$images/caplv-e2e-bake-seed.iso,device=cdrom" \
     --network network="$NETWORK_NAME" \

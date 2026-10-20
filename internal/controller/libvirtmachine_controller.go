@@ -1133,9 +1133,26 @@ func (r *LibvirtMachineReconciler) reconcileBootstrapArtifacts(ctx context.Conte
 		if !isoExists {
 			log.Info("Creating cloud-init ISO", "iso", rc.bootstrapISO)
 			bootstrapStart := time.Now()
+			netSpec := libvirtMachine.Spec.Network
+			staticNetwork := iso.StaticNetwork{
+				MACAddress: rc.machineScope.MACAddress(),
+				Addresses:  netSpec.Addresses,
+				Gateway:    netSpec.Gateway,
+			}
+			if netSpec.DNS != nil {
+				staticNetwork.Nameservers = netSpec.DNS.Nameservers
+				staticNetwork.SearchDomains = netSpec.DNS.SearchDomains
+			}
+			networkConfig, err := iso.NetworkConfig(staticNetwork)
+			if err != nil {
+				log.Error(err, "Terminal error", "operation", "rendering cloud-init network config", "reason", infrav1.ReasonInvalidBootstrapData)
+				r.setTerminalError(libvirtMachine, infrav1.ReasonInvalidBootstrapData,
+					fmt.Sprintf("failed to render cloud-init network config: %v", err))
+				return nil
+			}
 			// The instance ID carries the full domain name, which the provider
 			// ID is built from; the hostname may be shortened (see Hostname).
-			isoData, err := r.ISOBuilder.BuildCloudInitISO(bootstrapData, rc.domainName, rc.machineScope.Hostname())
+			isoData, err := r.ISOBuilder.BuildCloudInitISO(bootstrapData, networkConfig, rc.domainName, rc.machineScope.Hostname())
 			if err != nil {
 				log.Error(err, "Terminal error", "operation", "building cloud-init ISO", "reason", infrav1.ReasonInvalidBootstrapData)
 				r.setTerminalError(libvirtMachine, infrav1.ReasonInvalidBootstrapData,
@@ -1529,7 +1546,7 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 			NetworkType:     string(libvirtMachine.Spec.Network.Type),
 			NetworkName:     libvirtMachine.Spec.Network.Name,
 			NetworkModel:    libvirtMachine.Spec.Network.Model,
-			MACAddress:      libvirtMachine.Spec.Network.MACAddress,
+			MACAddress:      rc.machineScope.MACAddress(),
 			KernelPath:      rc.kernelPath,
 			InitrdPath:      rc.initrdPath,
 			KernelCmdline:   rc.kernelCmdline,

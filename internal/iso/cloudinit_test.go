@@ -24,7 +24,9 @@ func TestBuildCloudInitISO(t *testing.T) {
 	builder := NewDiskfsBuilder()
 	userData := []byte("#cloud-config\npackages:\n  - vim\n")
 
-	data, err := builder.BuildCloudInitISO(userData, "test-instance-id", "test-host")
+	networkConfig := []byte("version: 2\n")
+
+	data, err := builder.BuildCloudInitISO(userData, networkConfig, "test-instance-id", "test-host")
 	if err != nil {
 		t.Fatalf("BuildCloudInitISO returned unexpected error: %v", err)
 	}
@@ -34,5 +36,5 @@ func TestBuildCloudInitISO(t *testing.T) {
 	// cloud-init's NoCloud datasource finds the seed by its volume label and
 	// reads these exact file names.
 	assertVolumeID(t, data, "cidata")
-	assertFileNames(t, data, "user-data", "meta-data")
+	assertFileNames(t, data, "user-data", "meta-data", "network-config")
 }

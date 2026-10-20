@@ -27,8 +27,9 @@ import (
 )
 
 // BuildCloudInitISO creates an ISO9660 NoCloud image containing cloud-init data.
-// The ISO has volume label "cidata" and contains /user-data and /meta-data.
-func (b *DiskfsBuilder) BuildCloudInitISO(userData []byte, instanceID, hostname string) ([]byte, error) {
+// The ISO has volume label "cidata" and contains /user-data and /meta-data,
+// and /network-config when networkConfig is not empty (see NetworkConfig).
+func (b *DiskfsBuilder) BuildCloudInitISO(userData, networkConfig []byte, instanceID, hostname string) ([]byte, error) {
 	metaData := fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n", instanceID, hostname)
 
 	tmpFile, err := os.CreateTemp("", "caplv-cloudinit-*.iso")
@@ -41,7 +42,7 @@ func (b *DiskfsBuilder) BuildCloudInitISO(userData []byte, instanceID, hostname 
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	// Calculate disk size: data + metadata + overhead, rounded up to block boundary, minimum 2MB.
-	diskSize := max(int64(len(userData))+int64(len(metaData))+isoOverheadBytes, minISOSize)
+	diskSize := max(int64(len(userData))+int64(len(networkConfig))+int64(len(metaData))+isoOverheadBytes, minISOSize)
 	diskSize = roundUpToBlock(diskSize, isoBlockSize)
 
 	d, err := diskfs.Create(tmpPath, diskSize, diskfs.SectorSize(isoBlockSize))
@@ -75,6 +76,16 @@ func (b *DiskfsBuilder) BuildCloudInitISO(userData []byte, instanceID, hostname 
 	}
 	if _, err := metaDataFile.Write([]byte(metaData)); err != nil {
 		return nil, fmt.Errorf("writing meta-data: %w", err)
+	}
+
+	if len(networkConfig) > 0 {
+		networkConfigFile, err := fs.OpenFile("/network-config", os.O_CREATE|os.O_RDWR)
+		if err != nil {
+			return nil, fmt.Errorf("creating network-config: %w", err)
+		}
+		if _, err := networkConfigFile.Write(networkConfig); err != nil {
+			return nil, fmt.Errorf("writing network-config: %w", err)
+		}
 	}
 
 	iso, ok := fs.(*iso9660.FileSystem)
