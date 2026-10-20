@@ -27,12 +27,18 @@ concurrency:
 
 jobs:
   e2e-libvirt:
-    name: E2E Tests (libvirt)
+    name: E2E Tests (libvirt, ${{ matrix.guest }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # The workload cluster's guest OS. The host is the Ubuntu runner.
+        guest: [ubuntu-24.04, centos-stream-9]
     env:
       WORK_DIR: ${{ github.workspace }}/.e2e-libvirt
       CONTAINER_TOOL: docker
+      GUEST: ${{ matrix.guest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,16 +58,21 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - name: Read the base image name
+      - name: Name the base image
         id: image
-        run: echo "name=$(awk '$1 == "BASE_IMAGE:" {print $2}' test/e2e-libvirt/config/libvirt.yaml)" >> "$GITHUB_OUTPUT"
+        # Read by setup-host.sh and, through the environment, by the suite.
+        run: |
+          version=$(awk '$1 == "KUBERNETES_VERSION:" {print $2}' test/e2e-libvirt/config/libvirt.yaml)
+          name="e2e-${GUEST//./}-kube-${version}.qcow2"
+          echo "BASE_IMAGE=$name" >> "$GITHUB_ENV"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Restore the base image
         id: cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.WORK_DIR }}/images
-          key: e2e-libvirt-${{ steps.image.outputs.name }}-${{ hashFiles('test/e2e-libvirt/scripts/bake-image.sh') }}
+          key: e2e-libvirt-${{ steps.image.outputs.name }}-${{ hashFiles('test/e2e-libvirt/scripts/bake-*.sh') }}
 
       - name: Install kind
         run: |
@@ -100,6 +111,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-libvirt-artifacts
+          name: e2e-libvirt-artifacts-${{ matrix.guest }}
           path: _artifacts
           retention-days: 7

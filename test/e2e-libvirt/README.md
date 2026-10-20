@@ -16,7 +16,7 @@ and checks that it starts. It needs no libvirt host.
 
 | Spec | What it checks |
 | --- | --- |
-| Quick start (`quick_start_test.go`) | Builds a cluster from the shipped `topology` flavor and the `libvirt-kubeadm` ClusterClass: one control plane VM and one worker VM, each on its own `LibvirtHost`. Checks that the Cluster is Available and the Machines Ready, then deletes the cluster. |
+| Quick start (`quick_start_test.go`) | Builds a cluster from the shipped `topology` flavor and the `libvirt-kubeadm` ClusterClass: one control plane VM and one worker VM, each on its own `LibvirtHost`. Checks that the Cluster is Available and the Machines Ready, then deletes the cluster. CI runs it twice, with Ubuntu 24.04 and with CentOS Stream 9 guests. |
 
 The suite installs kindnet as the CNI once the control plane is up, so the
 shipped templates are used unmodified.
@@ -32,9 +32,12 @@ it changes the system, so run it only on a throwaway machine. It:
   host key;
 - defines the `caplv-e2e` NAT network (192.168.150.0/24) and opens it to
   forwarded traffic, so the kind cluster can reach the workload API server;
-- builds the base image: it boots an Ubuntu 24.04 cloud image once, lets
+- builds the base image for `GUEST` (`ubuntu-24.04`, the default, or
+  `centos-stream-9`): it boots the distribution's cloud image once, lets
   cloud-init install containerd and kubeadm, kubelet and kubectl at
-  `KUBERNETES_VERSION` (`scripts/bake-image.sh`), then resets cloud-init;
+  `KUBERNETES_VERSION` (`scripts/bake-ubuntu.sh` or `scripts/bake-el.sh`),
+  then resets cloud-init. The Enterprise Linux image runs SELinux
+  permissive, as kubeadm's installation guide does;
 - prints the host variables the suite needs, and appends them to
   `$GITHUB_ENV` in CI.
 
@@ -53,6 +56,9 @@ export WORK_DIR=$PWD/.e2e-libvirt
 eval "$(test/e2e-libvirt/scripts/setup-host.sh | sed 's/^/export /')"
 make test-e2e-libvirt CONTAINER_TOOL=docker
 ```
+
+For CentOS Stream 9 guests, also export `GUEST=centos-stream-9` and
+`BASE_IMAGE=e2e-centos-stream-9-kube-v1.36.5.qcow2` before both commands.
 
 Results, logs and resource dumps go to `_artifacts/`. In CI, the guests'
 serial consoles, captured by `scripts/capture-consoles.sh`, and the libvirt

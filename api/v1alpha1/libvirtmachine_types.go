@@ -211,7 +211,10 @@ type NetworkSpec struct {
 	// +optional
 	DNS *DNSSpec `json:"dns,omitempty"`
 
-	// macAddress is an optional MAC address to assign to the interface.
+	// macAddress is an optional MAC address to assign to the interface. When
+	// unset, CAPLV derives a stable one from the domain name in QEMU's
+	// 52:54:00 range, which cloud-init guests use to match the NIC to the
+	// static address configuration CAPLV gives them.
 	// +optional
 	MACAddress string `json:"macAddress,omitempty"`
 }

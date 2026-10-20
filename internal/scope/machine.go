@@ -107,6 +107,19 @@ func (s *MachineScope) Hostname() string {
 	return HostnameFor(s.DomainName())
 }
 
+// MACAddress returns the MAC address of the machine's NIC: spec.network's
+// macAddress when set, and otherwise one derived from the domain name in
+// QEMU's 52:54:00 range. Deriving it makes it known before the domain is
+// defined, so cloud-init's network configuration can match the NIC by it,
+// and stable across reconciles.
+func (s *MachineScope) MACAddress() string {
+	if mac := s.LibvirtMachine.Spec.Network.MACAddress; mac != "" {
+		return mac
+	}
+	sum := sha256.Sum256([]byte(s.DomainName()))
+	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", sum[0], sum[1], sum[2])
+}
+
 // HostnameFor returns the guest hostname for a domain name; see Hostname.
 func HostnameFor(domainName string) string {
 	if len(domainName) <= maxHostnameLength {

@@ -42,9 +42,11 @@ Notes on the topology flavor:
   surges, so a control plane upgrade collides on the host and stalls.
 - `BASE_IMAGE` must be a cloud-init qcow2 with kubeadm, kubelet and a
   container runtime for `KUBERNETES_VERSION`, such as an image-builder
-  qemu EFI build. Its NIC must be named `enp1s0` and it must use netplan,
-  because the class writes the static address as a netplan file. CAPLV only
-  injects network configuration into ignition guests.
+  qemu EFI build. CAPLV gives each machine its static address through the
+  NoCloud `network-config`, matched to the NIC by MAC address, and
+  cloud-init applies it with the guest's own network stack. Ubuntu
+  (netplan) and Enterprise Linux (NetworkManager) guests both work; the e2e
+  suite tests Ubuntu 24.04 and CentOS Stream 9.
 - Optional `LIBVIRT_HOST_FIRMWARE_PATH` and `LIBVIRT_HOST_NVRAM_TEMPLATE_PATH`
   set the OVMF files on both hosts. They default to the Fedora/RHEL paths;
   Debian and Ubuntu hosts need `/usr/share/OVMF/OVMF_CODE_4M.fd` and

@@ -218,8 +218,11 @@ spec:
                             description: gateway is the default gateway address.
                             type: string
                           macAddress:
-                            description: macAddress is an optional MAC address to
-                              assign to the interface.
+                            description: |-
+                              macAddress is an optional MAC address to assign to the interface. When
+                              unset, CAPLV derives a stable one from the domain name in QEMU's
+                              52:54:00 range, which cloud-init guests use to match the NIC to the
+                              static address configuration CAPLV gives them.
                             type: string
                           model:
                             default: virtio

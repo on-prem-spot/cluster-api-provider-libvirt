@@ -858,7 +858,7 @@ _Appears in:_
 | `addresses` _string array_ | addresses is a list of static IP addresses in CIDR notation (e.g. 192.168.1.10/24). |  | MinItems: 1 <br />Required: \{\} <br /> |
 | `gateway` _string_ | gateway is the default gateway address. |  | Optional: \{\} <br /> |
 | `dns` _[DNSSpec](#dnsspec)_ | dns defines DNS configuration for the network. |  | Optional: \{\} <br /> |
-| `macAddress` _string_ | macAddress is an optional MAC address to assign to the interface. |  | Optional: \{\} <br /> |
+| `macAddress` _string_ | macAddress is an optional MAC address to assign to the interface. When<br />unset, CAPLV derives a stable one from the domain name in QEMU's<br />52:54:00 range, which cloud-init guests use to match the NIC to the<br />static address configuration CAPLV gives them. |  | Optional: \{\} <br /> |
 
 
 #### NetworkType

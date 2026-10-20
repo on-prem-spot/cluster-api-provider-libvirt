@@ -113,7 +113,7 @@ control plane VM and one worker VM. That run covers:
 | --- | --- |
 | Cluster API and kubeadm providers | v1.14.3 |
 | Management cluster | kind, Kubernetes v1.36.4 |
-| Workload cluster | kubeadm, Kubernetes v1.36.5, on Ubuntu 24.04 cloud-init guests |
+| Workload cluster | kubeadm, Kubernetes v1.36.5, on Ubuntu 24.04 and on CentOS Stream 9 cloud-init guests (one run each) |
 | Host | Ubuntu 24.04, libvirt 10.0, QEMU 8.2, system mode |
 
 The ignition bootstrap path, session mode, ephemeral storage and

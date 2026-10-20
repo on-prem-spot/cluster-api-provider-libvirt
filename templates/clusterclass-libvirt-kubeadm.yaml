@@ -30,12 +30,12 @@
 #     the cluster instead of upgrading it in place.
 #
 # Guest requirements: a cloud-init enabled qcow2 with kubeadm, kubelet and a
-# container runtime pre-installed (for example an image-builder
-# "qemu" Ubuntu build, using its EFI variant since machines default to UEFI
-# firmware) whose virtio NIC is named enp1s0 and which ships netplan. CAPLV
-# does not inject static network configuration into cloud-init guests, so
-# the class writes a netplan file for each role and applies it before
-# kubeadm runs. The node's kubelet --provider-id is assembled from the host
+# container runtime pre-installed (for example an image-builder "qemu"
+# build, using its EFI variant since machines default to UEFI firmware).
+# CAPLV writes each machine's static address into the NoCloud
+# network-config, which cloud-init applies with the guest's own network
+# stack, so Ubuntu (netplan) and Enterprise Linux (NetworkManager) guests
+# both work; the e2e suite tests Ubuntu 24.04 and CentOS Stream 9. The node's kubelet --provider-id is assembled from the host
 # variable and cloud-init's instance ID, which CAPLV sets to the libvirt
 # domain name, matching the providerID CAPLV reports for the machine. The
 # node is named after cloud-init's local hostname: the domain name, or a
@@ -237,7 +237,7 @@ spec:
               valueFrom:
                 variable: rootDisk.size
     - name: controlPlanePlacement
-      description: Host, address, provider ID and netplan for the control plane machine.
+      description: Host, address and provider ID for the control plane machine.
       definitions:
         - selector:
             apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -273,31 +273,8 @@ spec:
                 template: |
                   - name: provider-id
                     value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
-            - op: add
-              path: /spec/template/spec/kubeadmConfigSpec/files
-              valueFrom:
-                template: |
-                  - path: /etc/netplan/99-caplv-static.yaml
-                    owner: root:root
-                    permissions: "0600"
-                    content: |
-                      network:
-                        version: 2
-                        ethernets:
-                          enp1s0:
-                            dhcp4: false
-                            addresses:
-                              - '{{ .controlPlaneMachine.address }}'
-                            routes:
-                              - to: default
-                                via: '{{ .network.gateway }}'
-                            nameservers:
-                              addresses:
-                              {{- range .network.nameservers }}
-                                - '{{ . }}'
-                              {{- end }}
     - name: workerPlacement
-      description: Host, address, provider ID and netplan for the default-worker machine.
+      description: Host, address and provider ID for the default-worker machine.
       definitions:
         - selector:
             apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -329,29 +306,6 @@ spec:
                 template: |
                   - name: provider-id
                     value: 'libvirt:///{{ .workerMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
-            - op: add
-              path: /spec/template/spec/files
-              valueFrom:
-                template: |
-                  - path: /etc/netplan/99-caplv-static.yaml
-                    owner: root:root
-                    permissions: "0600"
-                    content: |
-                      network:
-                        version: 2
-                        ethernets:
-                          enp1s0:
-                            dhcp4: false
-                            addresses:
-                              - '{{ .workerMachine.address }}'
-                            routes:
-                              - to: default
-                                via: '{{ .network.gateway }}'
-                            nameservers:
-                              addresses:
-                              {{- range .network.nameservers }}
-                                - '{{ . }}'
-                              {{- end }}
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtClusterTemplate
@@ -381,10 +335,6 @@ spec:
         joinConfiguration:
           nodeRegistration:
             name: '{{ v1.local_hostname }}'
-        preKubeadmCommands:
-          # Switch from cloud-init's DHCP fallback to the static address
-          # the controlPlanePlacement patch wrote.
-          - netplan apply
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtMachineTemplate
@@ -423,8 +373,6 @@ spec:
       joinConfiguration:
         nodeRegistration:
           name: '{{ v1.local_hostname }}'
-      preKubeadmCommands:
-        - netplan apply
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtMachineTemplate
