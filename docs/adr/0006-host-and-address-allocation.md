@@ -1,6 +1,8 @@
 # Host and address allocation
 
-Status: proposed. Decides the host and address item of ADR 0003 step 3.
+Status: accepted for phase 1 (host selection and host-provided addresses),
+which is implemented; phase 2 (IP pools) remains proposed. Decides the host
+and address item of ADR 0003 step 3.
 
 ## Context
 
@@ -90,7 +92,7 @@ CSR approver then uses in place of `spec.network.addresses`.
   `LibvirtHost.spec.machineNetwork`. Templates and the ClusterClass take a
   selector instead of a host and address, the replica limit is lifted, and
   surge rollouts work whenever a spare host exists. The e2e suite registers
-  three hosts and scales the workers from one to two.
+  three hosts and runs two workers from one MachineDeployment.
 - Phase 2: `addressesFromPools`, with the in-cluster IPAM provider in the
   e2e suite.
 
@@ -123,4 +125,14 @@ explicit addresses behave exactly as now. They become part of `v1beta2`.
   as a host label without changing this design.
 - The `topology` flavor's `controlPlaneMachine` and `workerMachine` variables
   are replaced by selectors, which is a breaking change to the ClusterClass
-  but not to the API.
+  but not to the API. The flavor no longer creates `LibvirtHost`s: hosts are
+  inventory shared by clusters and are registered beforehand.
+- With the host chosen at runtime, the kubelet's `--provider-id` cannot be
+  written into a template. CAPLV adds it to the NoCloud meta-data as
+  `provider_id`, which bootstrap data reads as
+  `{{ ds.meta_data.provider_id }}`.
+- Claims left by a force-deleted machine are not cleared automatically. A
+  cleanup that found no machine named by a claim would also fire during
+  `clusterctl move`, when a host can reach the target before its machine,
+  and the machine would then claim a second host while its VM still runs on
+  the first.

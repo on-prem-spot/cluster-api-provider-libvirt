@@ -76,6 +76,9 @@ const defaultMaxConcurrentReconciles = 50
 // LibvirtMachineReconciler reconciles a LibvirtMachine object.
 type LibvirtMachineReconciler struct {
 	client.Client
+	// APIReader reads LibvirtHosts uncached when looking up and making host
+	// claims; see hostclaim.go. Nil falls back to Client.
+	APIReader            client.Reader
 	Scheme               *runtime.Scheme
 	Recorder             events.EventRecorder
 	SSHClientFactory     SSHClientFactory
@@ -110,7 +113,7 @@ type LibvirtMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines/finalizers,verbs=update
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
@@ -192,14 +195,21 @@ func (r *LibvirtMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, fmt.Errorf("failed to get LibvirtCluster: %w", err)
 	}
 
-	// Fetch LibvirtHost from spec.hostRef.
-	libvirtHost := &infrav1.LibvirtHost{}
-	hostKey := types.NamespacedName{
-		Namespace: libvirtMachine.Namespace,
-		Name:      libvirtMachine.Spec.HostRef.Name,
+	// The pinned host, the one already claimed, or a newly claimed one.
+	libvirtHost, err := r.resolveHost(ctx, libvirtMachine, machine)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	if err := r.Get(ctx, hostKey, libvirtHost); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get LibvirtHost: %w", err)
+	if libvirtHost == nil {
+		if !libvirtMachine.DeletionTimestamp.IsZero() {
+			// Never got a host, so there is nothing on a hypervisor to clean up.
+			controllerutil.RemoveFinalizer(libvirtMachine, infrav1.MachineFinalizer)
+			return ctrl.Result{}, nil
+		}
+		if !controllerutil.ContainsFinalizer(libvirtMachine, infrav1.MachineFinalizer) {
+			controllerutil.AddFinalizer(libvirtMachine, infrav1.MachineFinalizer)
+		}
+		return ctrl.Result{RequeueAfter: hostClaimRequeueInterval}, nil
 	}
 
 	// Dispatch to delete or normal reconciliation.
@@ -237,6 +247,12 @@ type reconcileCtx struct {
 	kernelPath    string
 	initrdPath    string
 	kernelCmdline string
+}
+
+// network returns the machine's network configuration merged with its
+// host's spec.machineNetwork; see scope.MachineScope.Network.
+func (rc *reconcileCtx) network() infrav1.NetworkSpec {
+	return infrav1.EffectiveNetwork(rc.libvirtMachine.Spec.Network, rc.libvirtHost.Spec.MachineNetwork)
 }
 
 // reconcileNormal handles creating and configuring the libvirt domain.
@@ -300,6 +316,19 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 	})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create machine scope: %w", err)
+	}
+
+	// The network may come partly or wholly from the host; it has to add up.
+	if network := machineScope.Network(); network.Type == "" || network.Name == "" || len(network.Addresses) == 0 {
+		apimeta.SetStatusCondition(&libvirtMachine.Status.Conditions, metav1.Condition{
+			Type:   infrav1.InfrastructureReadyCondition,
+			Status: metav1.ConditionFalse,
+			Reason: infrav1.ReasonNetworkIncomplete,
+			Message: fmt.Sprintf("Neither spec.network nor LibvirtHost %s's spec.machineNetwork gives a network "+
+				"type, name and at least one address", libvirtHost.Name),
+			ObservedGeneration: libvirtMachine.Generation,
+		})
+		return ctrl.Result{RequeueAfter: hostClaimRequeueInterval}, nil
 	}
 
 	// Resolve auto-sizing: if vcpus or memoryMB are zero, use host capacity.
@@ -726,14 +755,14 @@ func (r *LibvirtMachineReconciler) preflightSessionMode(ctx context.Context, rc 
 		// An unparseable URI already failed client creation before this point.
 		return
 	}
-	if connURI != libvirt.ConnURISession || lm.Spec.Network.Type != infrav1.NetworkTypeNetwork {
+	if connURI != libvirt.ConnURISession || rc.network().Type != infrav1.NetworkTypeNetwork {
 		return
 	}
 	msg := fmt.Sprintf(
 		"Host %q uses session-mode libvirt (%s), which cannot attach machines to libvirt-managed networks; use network.type=bridge or a /system host",
 		rc.libvirtHost.Name, rc.libvirtHost.Spec.URI)
 	logf.FromContext(ctx).Info("Terminal error: network type unsupported on session-mode host",
-		"networkType", lm.Spec.Network.Type, "host", rc.libvirtHost.Name)
+		"networkType", rc.network().Type, "host", rc.libvirtHost.Name)
 	r.setTerminalError(lm, infrav1.ReasonNetworkTypeUnsupported, msg)
 }
 
@@ -1097,7 +1126,7 @@ func (r *LibvirtMachineReconciler) reconcileBootstrapArtifacts(ctx context.Conte
 		}
 
 		// Inject static network configuration for OVN-Kubernetes br-ex.
-		netSpec := libvirtMachine.Spec.Network
+		netSpec := rc.network()
 		if len(netSpec.Addresses) > 0 {
 			netCfg := ignition.NetworkConfig{
 				Addresses: netSpec.Addresses,
@@ -1133,7 +1162,7 @@ func (r *LibvirtMachineReconciler) reconcileBootstrapArtifacts(ctx context.Conte
 		if !isoExists {
 			log.Info("Creating cloud-init ISO", "iso", rc.bootstrapISO)
 			bootstrapStart := time.Now()
-			netSpec := libvirtMachine.Spec.Network
+			netSpec := rc.network()
 			staticNetwork := iso.StaticNetwork{
 				MACAddress: rc.machineScope.MACAddress(),
 				Addresses:  netSpec.Addresses,
@@ -1152,7 +1181,8 @@ func (r *LibvirtMachineReconciler) reconcileBootstrapArtifacts(ctx context.Conte
 			}
 			// The instance ID carries the full domain name, which the provider
 			// ID is built from; the hostname may be shortened (see Hostname).
-			isoData, err := r.ISOBuilder.BuildCloudInitISO(bootstrapData, networkConfig, rc.domainName, rc.machineScope.Hostname())
+			isoData, err := r.ISOBuilder.BuildCloudInitISO(bootstrapData, networkConfig, rc.domainName,
+				rc.machineScope.Hostname(), rc.machineScope.ProviderID())
 			if err != nil {
 				log.Error(err, "Terminal error", "operation", "building cloud-init ISO", "reason", infrav1.ReasonInvalidBootstrapData)
 				r.setTerminalError(libvirtMachine, infrav1.ReasonInvalidBootstrapData,
@@ -1531,6 +1561,7 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 			return nil, r.handleLibvirtError(libvirtMachine, err, "getting root disk path")
 		}
 
+		network := rc.network()
 		xmlParams := libvirt.DomainXMLParams{
 			Name:            rc.domainName,
 			VCPUs:           rc.resolvedVCPUs,
@@ -1543,9 +1574,9 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 			RootDiskPath:    rootDiskPath,
 			RootDiskBus:     libvirtMachine.Spec.RootDisk.Bus,
 			AdditionalDisks: rc.additionalDiskParams,
-			NetworkType:     string(libvirtMachine.Spec.Network.Type),
-			NetworkName:     libvirtMachine.Spec.Network.Name,
-			NetworkModel:    libvirtMachine.Spec.Network.Model,
+			NetworkType:     string(network.Type),
+			NetworkName:     network.Name,
+			NetworkModel:    network.Model,
 			MACAddress:      rc.machineScope.MACAddress(),
 			KernelPath:      rc.kernelPath,
 			InitrdPath:      rc.initrdPath,
@@ -1751,6 +1782,11 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 				"node", nodeName, "nodeProviderID", node.Spec.ProviderID,
 				"machineProviderID", machineScope.ProviderID())
 		}
+	}
+
+	// The VM and its artifacts are gone; hand the host back.
+	if err := r.releaseHost(ctx, libvirtHost, libvirtMachine); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Remove finalizer.

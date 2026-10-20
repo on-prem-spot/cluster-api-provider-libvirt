@@ -21,7 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,7 +38,7 @@ func testScheme() *runtime.Scheme {
 
 func testMachineSpec() infrav1.LibvirtMachineSpec {
 	return infrav1.LibvirtMachineSpec{
-		HostRef: corev1.LocalObjectReference{Name: "host-01"},
+		HostRef: &infrav1.LibvirtHostReference{Name: "host-01"},
 		Domain: infrav1.DomainSpec{
 			VCPUs:    4,
 			MemoryMB: 8192,
@@ -69,14 +68,74 @@ func TestValidateCreate_ValidMachine(t *testing.T) {
 	}
 }
 
-func TestValidateCreate_NoAddresses(t *testing.T) {
+// Addresses may come from the host's spec.machineNetwork, which admission
+// cannot see for a selector-placed machine.
+func TestValidateCreate_AddressesMayComeFromHost(t *testing.T) {
 	v := &LibvirtMachineCustomValidator{}
 	spec := testMachineSpec()
 	spec.Network.Addresses = nil
 	obj := &infrav1.LibvirtMachine{Spec: spec}
+	if _, err := v.ValidateCreate(context.Background(), obj); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateCreate_Placement(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		hostRef  *infrav1.LibvirtHostReference
+		selector *metav1.LabelSelector
+		wantErr  string
+	}{
+		{name: "hostRef", hostRef: &infrav1.LibvirtHostReference{Name: "host-01"}},
+		{name: "selector", selector: &metav1.LabelSelector{MatchLabels: map[string]string{"role": "worker"}}},
+		{name: "empty selector matches every host", selector: &metav1.LabelSelector{}},
+		{name: "neither", wantErr: "spec.hostRef"},
+		{
+			name: "both", hostRef: &infrav1.LibvirtHostReference{Name: "host-01"}, selector: &metav1.LabelSelector{},
+			wantErr: "spec.hostSelector",
+		},
+		{
+			name: "invalid selector",
+			selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: "role", Operator: "Near"},
+			}},
+			wantErr: "spec.hostSelector",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := testMachineSpec()
+			spec.HostRef, spec.HostSelector = tc.hostRef, tc.selector
+			_, err := (&LibvirtMachineCustomValidator{}).ValidateCreate(context.Background(), &infrav1.LibvirtMachine{Spec: spec})
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("unexpected error: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("got error %v, want one mentioning %s", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// A pinned host already claimed by another machine through its selector is
+// rejected at admission, not only by the controller.
+func TestValidateCreate_PinnedHostClaimedByAnother(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := infrav1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	host := &infrav1.LibvirtHost{
+		ObjectMeta: metav1.ObjectMeta{Name: "host-01", Namespace: "default"},
+		Spec:       infrav1.LibvirtHostSpec{ConsumerRef: &infrav1.LibvirtMachineReference{Name: "selected-vm"}},
+	}
+	v := &LibvirtMachineCustomValidator{Client: fake.NewClientBuilder().WithScheme(s).WithObjects(host).Build()}
+	obj := &infrav1.LibvirtMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: "pinned-vm", Namespace: "default"},
+		Spec:       testMachineSpec(), // hostRef: host-01
+	}
 	_, err := v.ValidateCreate(context.Background(), obj)
-	if err == nil {
-		t.Error("expected error for missing addresses")
+	if err == nil || !strings.Contains(err.Error(), "selected-vm") {
+		t.Errorf("got error %v, want one naming the machine holding the host", err)
 	}
 }
 

@@ -45,6 +45,10 @@ const (
 	HostReachableCondition = "Reachable"
 
 	// LibvirtMachine conditions
+	//
+	// HostAssignedCondition reports whether the machine holds a host: its
+	// pinned spec.hostRef, or one claimed through spec.hostSelector.
+	HostAssignedCondition            = "HostAssigned"
 	InfrastructureReadyCondition     = "InfrastructureReady"
 	HostReachableForMachineCondition = "HostReachable"
 	ArtifactsCreatedCondition        = "ArtifactsCreated"
@@ -80,6 +84,14 @@ const (
 	ReasonSessionModeMisconfigured = "SessionModeMisconfigured"
 
 	// Reasons — waiting
+	//
+	// ReasonNoHostAvailable: no free, ready host matches spec.hostSelector.
+	// ReasonHostInUse: the pinned spec.hostRef is claimed by another machine.
+	ReasonNoHostAvailable = "NoHostAvailable"
+	ReasonHostInUse       = "HostInUse"
+	// ReasonNetworkIncomplete: neither the machine's spec.network nor its
+	// host's spec.machineNetwork gives a type, name or address.
+	ReasonNetworkIncomplete     = "NetworkIncomplete"
 	ReasonBootstrapDataNotReady = "BootstrapDataNotReady"
 	ReasonHostNotReady          = "HostNotReady"
 	ReasonNodeNotJoined         = "NodeNotJoined"
@@ -94,6 +106,7 @@ const (
 	ReasonNodeOwnershipMismatch = "NodeOwnershipMismatch"
 
 	// Reasons — success
+	ReasonHostAssigned        = "HostAssigned"
 	ReasonConnectionSucceeded = "ConnectionSucceeded"
 	ReasonProvisioned         = "Provisioned"
 	ReasonArtifactsReady      = "ArtifactsReady"

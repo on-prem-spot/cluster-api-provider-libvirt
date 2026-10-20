@@ -166,11 +166,21 @@ func (r *CSRApproverReconciler) libvirtMachineForNode(ctx context.Context, nodeN
 	return nil
 }
 
-// machineNodeIPs returns the IP addresses this machine was provisioned with,
-// parsed out of spec.network.addresses (CIDR notation).
+// machineNodeIPs returns the IP addresses this machine was provisioned with:
+// spec.network.addresses (CIDR notation), or, when the address came from
+// the host's spec.machineNetwork, the addresses the controller recorded in
+// status.addresses.
 func machineNodeIPs(lm *infrav1.LibvirtMachine) []net.IP {
-	ips := make([]net.IP, 0, len(lm.Spec.Network.Addresses))
-	for _, addr := range lm.Spec.Network.Addresses {
+	addrs := lm.Spec.Network.Addresses
+	if len(addrs) == 0 {
+		for _, a := range lm.Status.Addresses {
+			if a.Type == infrav1.MachineInternalIP {
+				addrs = append(addrs, a.Address)
+			}
+		}
+	}
+	ips := make([]net.IP, 0, len(addrs))
+	for _, addr := range addrs {
 		// Addresses are CIDRs (webhook-validated); tolerate a bare IP too.
 		if ip, _, err := net.ParseCIDR(addr); err == nil {
 			ips = append(ips, ip)

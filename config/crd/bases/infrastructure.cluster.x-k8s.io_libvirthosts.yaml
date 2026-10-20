@@ -25,6 +25,9 @@ spec:
     - jsonPath: .status.ready
       name: Ready
       type: boolean
+    - jsonPath: .spec.consumerRef.name
+      name: Consumer
+      type: string
     - jsonPath: .status.capacity.availableVCPUs
       name: vCPUs
       priority: 1
@@ -63,6 +66,22 @@ spec:
           spec:
             description: spec defines the desired state of LibvirtHost.
             properties:
+              consumerRef:
+                description: |-
+                  consumerRef names the LibvirtMachine using this host. CAPLV sets it
+                  when a machine claims the host and clears it once the machine's VM and
+                  artifacts are deleted; it is what keeps a host to one VM. Clearing it
+                  by hand hands the host to another machine while the old VM may still
+                  exist.
+                properties:
+                  name:
+                    description: name is the name of the LibvirtMachine.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               firmwarePath:
                 default: /usr/share/OVMF/OVMF_CODE.secboot.fd
                 description: firmwarePath overrides the OVMF firmware path on the
@@ -96,6 +115,48 @@ spec:
                     type: string
                 required:
                 - name
+                type: object
+              machineNetwork:
+                description: |-
+                  machineNetwork is the network configuration for the VM this host runs.
+                  A host runs one VM, so its address can belong to the host, which keeps
+                  it valid on the host's network. A LibvirtMachine on this host takes
+                  each field it leaves unset in spec.network from here.
+                properties:
+                  addresses:
+                    description: addresses is a list of static IP addresses in CIDR
+                      notation (e.g. 192.168.1.10/24).
+                    items:
+                      type: string
+                    type: array
+                  dns:
+                    description: dns defines DNS configuration for the network.
+                    properties:
+                      nameservers:
+                        description: nameservers is a list of DNS server addresses.
+                        items:
+                          type: string
+                        type: array
+                      searchDomains:
+                        description: searchDomains is a list of DNS search domains.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  gateway:
+                    description: gateway is the default gateway address.
+                    type: string
+                  name:
+                    description: name is the name of the libvirt network or bridge
+                      device.
+                    minLength: 1
+                    type: string
+                  type:
+                    description: type is the type of libvirt network attachment.
+                    enum:
+                    - bridge
+                    - network
+                    type: string
                 type: object
               nvramTemplatePath:
                 default: /usr/share/OVMF/OVMF_VARS.fd

@@ -27,6 +27,7 @@ import (
 // provisioningBlockers are the conditions that can hold a machine back before
 // InfrastructureReady is first set, in the order reconcileNormal checks them.
 var provisioningBlockers = []string{
+	infrav1.HostAssignedCondition,
 	infrav1.HostReachableForMachineCondition,
 	infrav1.BootstrapDataReadyCondition,
 	infrav1.BaseImageStagedCondition,

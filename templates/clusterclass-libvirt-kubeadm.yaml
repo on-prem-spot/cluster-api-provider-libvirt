@@ -18,16 +18,24 @@
 # therefore uses the core CAPI kubeadm providers (KubeadmControlPlane +
 # KubeadmConfig) and builds a new workload cluster with cloud-init guests.
 #
-# CAPLV placement constraints (see docs/adr/0001-host-management.md):
-#   - Every LibvirtMachine names its host and static IP explicitly and a host
-#     runs exactly one VM (webhook-enforced). Templates cannot allocate
-#     either, so each role gets one host and one address through variables,
-#     and the control plane and each worker class must run at replicas: 1.
-#   - The worker class rolls out delete-first (maxSurge 0) so a replacement
-#     machine never collides with its predecessor on the same host.
-#     KubeadmControlPlane rollouts (e.g. Kubernetes upgrades) always surge
-#     with a single replica, so they collide on the host and stall; recreate
-#     the cluster instead of upgrading it in place.
+# Placement (see docs/adr/0006-host-and-address-allocation.md):
+#   - Machines are placed by host selector. Each control plane machine claims
+#     a free LibvirtHost matching controlPlaneHostSelector, and each worker one
+#     matching workerHostSelector; by default, hosts labelled
+#     caplv.infrastructure.cluster.x-k8s.io/role=control-plane and =worker.
+#     A host runs one VM, so a role scales to as many machines as it has
+#     matching hosts.
+#   - Each VM takes its network (bridge or libvirt network, address, gateway,
+#     DNS) from its host's spec.machineNetwork, so register the hosts with
+#     one before creating a cluster.
+#   - The control plane endpoint is fixed when the cluster is created. With
+#     one control plane machine and no load balancer it is the address of
+#     the one control plane host. A KubeadmControlPlane rollout (e.g. a
+#     Kubernetes upgrade) surges onto another host with another address, so
+#     without a load balancer or virtual IP in front of the control plane,
+#     recreate the cluster rather than rolling the control plane.
+#   - Workers roll out delete-first (maxSurge 0), which never needs a spare
+#     host.
 #
 # Guest requirements: a cloud-init enabled qcow2 with kubeadm, kubelet and a
 # container runtime pre-installed (for example an image-builder "qemu"
@@ -35,12 +43,11 @@
 # CAPLV writes each machine's static address into the NoCloud
 # network-config, which cloud-init applies with the guest's own network
 # stack, so Ubuntu (netplan) and Enterprise Linux (NetworkManager) guests
-# both work; the e2e suite tests Ubuntu 24.04 and CentOS Stream 9. The node's kubelet --provider-id is assembled from the host
-# variable and cloud-init's instance ID, which CAPLV sets to the libvirt
-# domain name, matching the providerID CAPLV reports for the machine. The
-# node is named after cloud-init's local hostname: the domain name, or a
-# hashed 63-character form of it when longer, since Node names can be no
-# longer.
+# both work; the e2e suite tests Ubuntu 24.04 and CentOS Stream 9. The
+# kubelet's --provider-id is read from the provider_id CAPLV writes into the
+# NoCloud meta-data, since it names the host CAPLV chose. The node is named
+# after cloud-init's local hostname: the domain name, or a hashed
+# 63-character form of it when longer, since Node names can be no longer.
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: ClusterClass
@@ -89,8 +96,9 @@ spec:
           type: object
           description: >-
             API server endpoint of the workload cluster. With a single
-            control plane node and no load balancer this is the control plane
-            machine's IP address (without the prefix length).
+            control plane machine and no load balancer this is the address in
+            the control plane host's spec.machineNetwork (without the prefix
+            length).
           required: [host]
           properties:
             host:
@@ -101,62 +109,33 @@ spec:
               default: 6443
               minimum: 1
               maximum: 65535
-    - name: controlPlaneMachine
-      required: true
+    - name: controlPlaneHostSelector
+      required: false
       schema:
         openAPIV3Schema:
           type: object
-          description: Placement of the single control plane machine.
-          required: [hostRef, address]
+          description: Labels the LibvirtHosts for control plane machines must have.
+          default:
+            matchLabels:
+              caplv.infrastructure.cluster.x-k8s.io/role: control-plane
           properties:
-            hostRef:
-              type: string
-              description: Name of the LibvirtHost to run the control plane VM on.
-              minLength: 1
-            address:
-              type: string
-              description: Static IP in CIDR notation, e.g. 192.168.1.10/24.
-              minLength: 1
-    - name: workerMachine
-      required: true
+            matchLabels:
+              type: object
+              additionalProperties:
+                type: string
+    - name: workerHostSelector
+      required: false
       schema:
         openAPIV3Schema:
           type: object
-          description: Placement of the single default-worker machine.
-          required: [hostRef, address]
+          description: Labels the LibvirtHosts for default-worker machines must have.
+          default:
+            matchLabels:
+              caplv.infrastructure.cluster.x-k8s.io/role: worker
           properties:
-            hostRef:
-              type: string
-              description: Name of the LibvirtHost to run the worker VM on.
-              minLength: 1
-            address:
-              type: string
-              description: Static IP in CIDR notation, e.g. 192.168.1.11/24.
-              minLength: 1
-    - name: network
-      required: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          description: Network attachment and addressing shared by all machines.
-          required: [gateway, nameservers]
-          properties:
-            type:
-              type: string
-              enum: [bridge, network]
-              default: bridge
-            name:
-              type: string
-              description: Host bridge (type bridge) or libvirt network (type network).
-              default: br0
-              minLength: 1
-            gateway:
-              type: string
-              minLength: 1
-            nameservers:
-              type: array
-              minItems: 1
-              items:
+            matchLabels:
+              type: object
+              additionalProperties:
                 type: string
     - name: rootDisk
       required: true
@@ -193,8 +172,8 @@ spec:
                 template: |
                   host: '{{ .controlPlaneEndpoint.host }}'
                   port: {{ .controlPlaneEndpoint.port }}
-    - name: machineCommon
-      description: Network attachment and root disk shared by every LibvirtMachine.
+    - name: rootDisk
+      description: Root disk shared by every LibvirtMachine.
       definitions:
         - selector:
             apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -204,26 +183,6 @@ spec:
               machineDeploymentClass:
                 names: [default-worker]
           jsonPatches:
-            - op: replace
-              path: /spec/template/spec/network/type
-              valueFrom:
-                variable: network.type
-            - op: replace
-              path: /spec/template/spec/network/name
-              valueFrom:
-                variable: network.name
-            - op: add
-              path: /spec/template/spec/network/gateway
-              valueFrom:
-                variable: network.gateway
-            - op: add
-              path: /spec/template/spec/network/dns
-              valueFrom:
-                template: |
-                  nameservers:
-                  {{- range .network.nameservers }}
-                  - '{{ . }}'
-                  {{- end }}
             - op: replace
               path: /spec/template/spec/rootDisk/baseImage
               valueFrom:
@@ -236,8 +195,8 @@ spec:
               path: /spec/template/spec/rootDisk/size
               valueFrom:
                 variable: rootDisk.size
-    - name: controlPlanePlacement
-      description: Host, address and provider ID for the control plane machine.
+    - name: controlPlaneHostSelector
+      description: Which hosts control plane machines claim.
       definitions:
         - selector:
             apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -246,35 +205,11 @@ spec:
               controlPlane: true
           jsonPatches:
             - op: replace
-              path: /spec/template/spec/hostRef/name
+              path: /spec/template/spec/hostSelector
               valueFrom:
-                variable: controlPlaneMachine.hostRef
-            # The whole list: CAPI rejects patches into array elements.
-            - op: replace
-              path: /spec/template/spec/network/addresses
-              valueFrom:
-                template: |
-                  - '{{ .controlPlaneMachine.address }}'
-        - selector:
-            apiVersion: controlplane.cluster.x-k8s.io/v1beta2
-            kind: KubeadmControlPlaneTemplate
-            matchResources:
-              controlPlane: true
-          jsonPatches:
-            - op: add
-              path: /spec/template/spec/kubeadmConfigSpec/initConfiguration/nodeRegistration/kubeletExtraArgs
-              valueFrom:
-                template: |
-                  - name: provider-id
-                    value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
-            - op: add
-              path: /spec/template/spec/kubeadmConfigSpec/joinConfiguration/nodeRegistration/kubeletExtraArgs
-              valueFrom:
-                template: |
-                  - name: provider-id
-                    value: 'libvirt:///{{ .controlPlaneMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
-    - name: workerPlacement
-      description: Host, address and provider ID for the default-worker machine.
+                variable: controlPlaneHostSelector
+    - name: workerHostSelector
+      description: Which hosts default-worker machines claim.
       definitions:
         - selector:
             apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -284,28 +219,9 @@ spec:
                 names: [default-worker]
           jsonPatches:
             - op: replace
-              path: /spec/template/spec/hostRef/name
+              path: /spec/template/spec/hostSelector
               valueFrom:
-                variable: workerMachine.hostRef
-            # The whole list: CAPI rejects patches into array elements.
-            - op: replace
-              path: /spec/template/spec/network/addresses
-              valueFrom:
-                template: |
-                  - '{{ .workerMachine.address }}'
-        - selector:
-            apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
-            kind: KubeadmConfigTemplate
-            matchResources:
-              machineDeploymentClass:
-                names: [default-worker]
-          jsonPatches:
-            - op: add
-              path: /spec/template/spec/joinConfiguration/nodeRegistration/kubeletExtraArgs
-              valueFrom:
-                template: |
-                  - name: provider-id
-                    value: 'libvirt:///{{ .workerMachine.hostRef }}/{{ "{{ v1.instance_id }}" }}'
+                variable: workerHostSelector
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtClusterTemplate
@@ -326,15 +242,22 @@ spec:
     spec:
       kubeadmConfigSpec:
         format: cloud-config
+        # Both values are rendered by cloud-init (jinja) from the NoCloud
+        # meta-data CAPLV writes: local-hostname is the domain name (or a
+        # shortened form when it is longer than 63 characters), and
+        # provider_id is the providerID CAPLV reports for the machine.
         initConfiguration:
           nodeRegistration:
-            # Rendered by cloud-init (jinja) from the local-hostname CAPLV
-            # writes into the NoCloud meta-data: the libvirt domain name, or
-            # a shortened form when it is longer than 63 characters.
             name: '{{ v1.local_hostname }}'
+            kubeletExtraArgs:
+              - name: provider-id
+                value: '{{ ds.meta_data.provider_id }}'
         joinConfiguration:
           nodeRegistration:
             name: '{{ v1.local_hostname }}'
+            kubeletExtraArgs:
+              - name: provider-id
+                value: '{{ ds.meta_data.provider_id }}'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtMachineTemplate
@@ -343,11 +266,10 @@ metadata:
 spec:
   template:
     spec:
-      # hostRef, network.addresses, network.type/name and rootDisk below are
-      # placeholders required by the schema; the ClusterClass patches
-      # replace all of them per cluster.
-      hostRef:
-        name: placeholder-set-by-clusterclass
+      # hostSelector and rootDisk below are placeholders required by the
+      # schema; the ClusterClass patches replace them per cluster. The
+      # network is left to each host's spec.machineNetwork.
+      hostSelector: {}
       # Empty domain: vCPUs and memory are auto-sized from the host's
       # capacity minus its reserved resources.
       domain: {}
@@ -355,11 +277,6 @@ spec:
         baseImage: placeholder-set-by-clusterclass
         storagePool: default
         size: 50Gi
-      network:
-        type: bridge
-        name: br0
-        addresses:
-          - 192.0.2.10/32
       bootstrapFormat: cloud-init
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
@@ -373,6 +290,9 @@ spec:
       joinConfiguration:
         nodeRegistration:
           name: '{{ v1.local_hostname }}'
+          kubeletExtraArgs:
+            - name: provider-id
+              value: '{{ ds.meta_data.provider_id }}'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtMachineTemplate
@@ -381,16 +301,10 @@ metadata:
 spec:
   template:
     spec:
-      hostRef:
-        name: placeholder-set-by-clusterclass
+      hostSelector: {}
       domain: {}
       rootDisk:
         baseImage: placeholder-set-by-clusterclass
         storagePool: default
         size: 50Gi
-      network:
-        type: bridge
-        name: br0
-        addresses:
-          - 192.0.2.11/32
       bootstrapFormat: cloud-init

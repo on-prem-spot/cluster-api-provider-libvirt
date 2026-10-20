@@ -12,7 +12,8 @@ used in three ways:
   on time-of-day rules.
 - **New kubeadm clusters.** The `topology` flavor and its `libvirt-kubeadm`
   ClusterClass build a complete workload cluster from cloud-init guests with
-  the core CAPI kubeadm providers.
+  the core CAPI kubeadm providers. Machines claim hosts by label, so worker
+  pools scale to as many machines as there are hosts.
 
 The API is `v1alpha1`; fields may still change before `v1beta2` (see
 [ADR 0003](docs/adr/0003-api-version-promotion.md)).
@@ -97,8 +98,7 @@ Status fields such as `initialization.provisioned` and the list-shaped
 `failureDomains` follow v1beta2, so CAPI releases that only implement the
 v1beta1 contract (v1.10 and earlier) are not supported. See
 [ADR 0003](docs/adr/0003-api-version-promotion.md) for the remaining gaps and
-the promotion plan; host and IP allocation for scaling is the largest. This
-tree's versions must not be read as verified compatibility for previously
+the promotion plan. This tree's versions must not be read as verified compatibility for previously
 released binaries.
 
 ### Tested in CI
@@ -107,7 +107,8 @@ Every pull request runs Cluster API's quick-start spec against real KVM
 ([E2E suite](test/e2e-libvirt/README.md)): clusterctl installs CAPI, the
 kubeadm providers and CAPLV into a kind management cluster, and the
 `topology` flavor builds, checks and deletes a workload cluster of one
-control plane VM and one worker VM. That run covers:
+control plane VM and two worker VMs, placed by host selector. That run
+covers:
 
 | Component | Version |
 | --- | --- |

@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -216,7 +215,7 @@ func TestClusterReportsHostsAsFailureDomains(t *testing.T) {
 
 func TestMachineReportsHostAsFailureDomain(t *testing.T) {
 	lm := &infrav1.LibvirtMachine{ObjectMeta: metav1.ObjectMeta{Name: "worker01", Namespace: "default"},
-		Spec: infrav1.LibvirtMachineSpec{HostRef: corev1.LocalObjectReference{Name: "host-a"}}}
+		Spec: infrav1.LibvirtMachineSpec{HostRef: &infrav1.LibvirtHostReference{Name: "host-a"}}}
 	host := &infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-a", Namespace: "default"}}
 	r := &LibvirtMachineReconciler{}
 	// An unready host returns before any connection is attempted.

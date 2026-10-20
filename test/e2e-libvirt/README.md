@@ -16,7 +16,7 @@ and checks that it starts. It needs no libvirt host.
 
 | Spec | What it checks |
 | --- | --- |
-| Quick start (`quick_start_test.go`) | Builds a cluster from the shipped `topology` flavor and the `libvirt-kubeadm` ClusterClass: one control plane VM and one worker VM, each on its own `LibvirtHost`. Checks that the Cluster is Available and the Machines Ready, then deletes the cluster. CI runs it twice, with Ubuntu 24.04 and with CentOS Stream 9 guests. |
+| Quick start (`quick_start_test.go`) | Registers the three `LibvirtHost`s in `data/hosts.yaml`, then builds a cluster from the shipped `topology` flavor and the `libvirt-kubeadm` ClusterClass: one control plane VM and two worker VMs, each claiming a host by label and taking its address from it. Checks that the Cluster is Available and the Machines Ready, then deletes the cluster. CI runs it twice, with Ubuntu 24.04 and with CentOS Stream 9 guests. |
 
 The suite installs kindnet as the CNI once the control plane is up, so the
 shipped templates are used unmodified.
@@ -41,9 +41,10 @@ it changes the system, so run it only on a throwaway machine. It:
 - prints the host variables the suite needs, and appends them to
   `$GITHUB_ENV` in CI.
 
-The one physical host is registered as two `LibvirtHost`s (`e2e-cp` and
-`e2e-worker`) with the same URI, because a `LibvirtHost` runs one VM. Their
-`reservedResources` leave each VM about 4 GiB of memory.
+The one physical host is registered as three `LibvirtHost`s (`e2e-cp`,
+`e2e-worker-1` and `e2e-worker-2`) with the same URI, because a
+`LibvirtHost` runs one VM. Their `reservedResources` leave each VM about
+3 GiB of memory, and each has a `machineNetwork` with its VM's address.
 
 ## Running it
 

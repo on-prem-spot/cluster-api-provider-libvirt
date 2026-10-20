@@ -131,7 +131,7 @@ func TestLibvirtHostURIImmutableWhileMachinesPlaced(t *testing.T) {
 
 	machine := &infrav1.LibvirtMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker01", Namespace: "default"},
-		Spec:       infrav1.LibvirtMachineSpec{HostRef: corev1.LocalObjectReference{Name: old.Name}},
+		Spec:       infrav1.LibvirtMachineSpec{HostRef: &infrav1.LibvirtHostReference{Name: old.Name}},
 	}
 	busy := &LibvirtHostCustomValidator{Client: fake.NewClientBuilder().WithScheme(s).WithObjects(machine).Build()}
 	_, err := busy.ValidateUpdate(context.Background(), old, moved)

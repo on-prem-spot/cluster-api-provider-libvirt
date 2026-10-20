@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,20 +69,11 @@ func (v *LibvirtMachineCustomValidator) ValidateCreate(ctx context.Context, obj 
 
 	var allErrs field.ErrorList
 
-	// Validate addresses.
-	addressesPath := field.NewPath("spec", "network", "addresses")
-	if len(obj.Spec.Network.Addresses) == 0 {
-		allErrs = append(allErrs, field.Required(addressesPath, "at least one address is required"))
-	}
-	for i, addr := range obj.Spec.Network.Addresses {
-		if _, _, err := net.ParseCIDR(addr); err != nil {
-			allErrs = append(allErrs, field.Invalid(
-				addressesPath.Index(i),
-				addr,
-				fmt.Sprintf("invalid CIDR notation: %v", err),
-			))
-		}
-	}
+	allErrs = append(allErrs, validatePlacement(obj.Spec)...)
+
+	// Addresses may be left to the host's spec.machineNetwork; whether the
+	// two together give one is checked once the host is known.
+	allErrs = append(allErrs, validateCIDRs(field.NewPath("spec", "network", "addresses"), obj.Spec.Network.Addresses)...)
 
 	allErrs = append(allErrs, validateShellSafeLibvirtFields(obj.Spec)...)
 	allErrs = append(allErrs, validateNodeMetadata(obj.Spec, nil)...)
@@ -102,8 +94,8 @@ func (v *LibvirtMachineCustomValidator) ValidateCreate(ctx context.Context, obj 
 		}
 	}
 
-	// Enforce one machine per host.
-	if v.Client != nil {
+	// Enforce one machine per pinned host; a selector claims a free one.
+	if v.Client != nil && obj.Spec.HostRef != nil {
 		if err := v.validateHostUniqueness(ctx, obj); err != nil {
 			allErrs = append(allErrs, err)
 		}
@@ -306,10 +298,54 @@ func (v *LibvirtMachineCustomValidator) ValidateDelete(_ context.Context, _ *inf
 	return nil, nil
 }
 
-// validateHostUniqueness rejects creation if another LibvirtMachine in the
-// same namespace already references the same host. Each host runs at most
-// one CAPLV-managed VM.
+// validatePlacement requires exactly one of hostRef and hostSelector, and a
+// well-formed selector. The CRD enforces the first too; checking it here
+// gives a clearer message.
+func validatePlacement(spec infrastructurev1alpha1.LibvirtMachineSpec) field.ErrorList {
+	var allErrs field.ErrorList
+	specPath := field.NewPath("spec")
+	switch {
+	case spec.HostRef != nil && spec.HostSelector != nil:
+		allErrs = append(allErrs, field.Forbidden(specPath.Child("hostSelector"),
+			"set either hostRef or hostSelector, not both"))
+	case spec.HostRef == nil && spec.HostSelector == nil:
+		allErrs = append(allErrs, field.Required(specPath.Child("hostRef"),
+			"a hostRef naming a LibvirtHost, or a hostSelector, is required"))
+	case spec.HostSelector != nil:
+		allErrs = append(allErrs, metav1validation.ValidateLabelSelector(spec.HostSelector,
+			metav1validation.LabelSelectorValidationOptions{}, specPath.Child("hostSelector"))...)
+	}
+	return allErrs
+}
+
+// validateCIDRs checks that each address is in CIDR notation.
+func validateCIDRs(path *field.Path, addresses []string) field.ErrorList {
+	var allErrs field.ErrorList
+	for i, addr := range addresses {
+		if _, _, err := net.ParseCIDR(addr); err != nil {
+			allErrs = append(allErrs, field.Invalid(path.Index(i), addr, fmt.Sprintf("invalid CIDR notation: %v", err)))
+		}
+	}
+	return allErrs
+}
+
+// validateHostUniqueness rejects a machine pinned to a host another
+// LibvirtMachine in the namespace already uses, whether by its own hostRef or
+// by claim. Each host runs at most one CAPLV-managed VM; the controller's
+// claim enforces it, and this reports the mistake at admission.
 func (v *LibvirtMachineCustomValidator) validateHostUniqueness(ctx context.Context, obj *infrastructurev1alpha1.LibvirtMachine) *field.Error {
+	hostName := obj.Spec.HostRef.Name
+	host := &infrastructurev1alpha1.LibvirtHost{}
+	err := v.Client.Get(ctx, client.ObjectKey{Namespace: obj.Namespace, Name: hostName}, host)
+	switch {
+	case err == nil && host.Spec.ConsumerRef != nil && host.Spec.ConsumerRef.Name != obj.Name:
+		return field.Forbidden(field.NewPath("spec", "hostRef"),
+			fmt.Sprintf("host %q is already in use by LibvirtMachine %q; each host supports at most one VM",
+				hostName, host.Spec.ConsumerRef.Name))
+	case err != nil && !apierrors.IsNotFound(err):
+		return field.InternalError(field.NewPath("spec", "hostRef"), fmt.Errorf("failed to get LibvirtHost: %w", err))
+	}
+
 	machineList := &infrastructurev1alpha1.LibvirtMachineList{}
 	if err := v.Client.List(ctx, machineList, client.InNamespace(obj.Namespace)); err != nil {
 		return field.InternalError(
@@ -327,11 +363,11 @@ func (v *LibvirtMachineCustomValidator) validateHostUniqueness(ctx context.Conte
 		if !existing.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if existing.Spec.HostRef.Name == obj.Spec.HostRef.Name {
+		if existing.AssignedHostName() == hostName {
 			return field.Forbidden(
 				field.NewPath("spec", "hostRef"),
 				fmt.Sprintf("host %q is already in use by LibvirtMachine %q; each host supports at most one VM",
-					obj.Spec.HostRef.Name, existing.Name),
+					hostName, existing.Name),
 			)
 		}
 	}

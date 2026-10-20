@@ -19,7 +19,7 @@ package iso
 // Builder defines the interface for building ISO images.
 type Builder interface {
 	BuildIgnitionISO(ignitionData []byte) ([]byte, error)
-	BuildCloudInitISO(userData, networkConfig []byte, instanceID, hostname string) ([]byte, error)
+	BuildCloudInitISO(userData, networkConfig []byte, instanceID, hostname, providerID string) ([]byte, error)
 }
 
 // DiskfsBuilder implements Builder using go-diskfs.

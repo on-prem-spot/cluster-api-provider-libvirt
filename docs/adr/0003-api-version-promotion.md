@@ -89,7 +89,8 @@ version makes clear which contract the API was designed against.
      credential management (#41) so `LibvirtHost.spec.secretRef` is not frozen
      in its current form. v1alpha1 now has a cluster-scoped
      `LibvirtClusterIdentity` that hosts reference with `spec.identityRef`;
-   - *(Proposed in [ADR 0006](0006-host-and-address-allocation.md).)* decide
+   - *(Decided in [ADR 0006](0006-host-and-address-allocation.md); host
+     selection and host-provided addresses are implemented.)* decide
      host and address allocation: whether `spec.hostRef` becomes optional and
      is resolved from the failure domain CAPI chooses, and how static
      addresses are assigned per machine (e.g. CAPI IPAM);

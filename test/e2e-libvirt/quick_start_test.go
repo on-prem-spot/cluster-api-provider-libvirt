@@ -34,8 +34,10 @@ import (
 )
 
 // The quick start creates a cluster from the shipped "topology" flavor (the
-// libvirt-kubeadm ClusterClass): one control plane VM and one worker VM,
-// each on its own LibvirtHost. It then checks the Cluster and Machines are
+// libvirt-kubeadm ClusterClass): one control plane VM and two worker VMs.
+// The machines claim the LibvirtHosts in data/hosts.yaml by label and take
+// their addresses from them, so the two workers come from one
+// MachineDeployment. It then checks the Cluster and Machines are
 // Available/Ready, and deletes the cluster, which removes the VMs.
 var _ = Describe("When following the Cluster API quick-start", func() {
 	capie2e.QuickStartSpec(ctx, func() capie2e.QuickStartSpecInput {
@@ -46,7 +48,8 @@ var _ = Describe("When following the Cluster API quick-start", func() {
 			ArtifactFolder:        artifactFolder,
 			SkipCleanup:           skipCleanup,
 			Flavor:                ptr.To("topology"),
-			PostNamespaceCreated:  createHostSSHSecret,
+			WorkerMachineCount:    ptr.To[int64](2),
+			PostNamespaceCreated:  createHosts,
 			ControlPlaneWaiters: clusterctl.ControlPlaneWaiters{
 				WaitForControlPlaneInitialized: waitForControlPlaneAndInstallCNI,
 			},
@@ -54,9 +57,10 @@ var _ = Describe("When following the Cluster API quick-start", func() {
 	})
 })
 
-// createHostSSHSecret creates the Secret holding the libvirt hosts' SSH key,
-// which cluster templates leave out because it is secret material.
-func createHostSSHSecret(proxy framework.ClusterProxy, namespace string) {
+// createHosts registers the LibvirtHosts in data/hosts.yaml, and the Secret
+// with their SSH key, in the spec's namespace. Hosts are inventory shared by
+// clusters, so cluster templates do not create them.
+func createHosts(proxy framework.ClusterProxy, namespace string) {
 	keyPath := e2eConfig.MustGetVariable("LIBVIRT_HOST_SSH_PRIVATE_KEY_PATH")
 	key, err := os.ReadFile(keyPath) //nolint:gosec // path comes from the e2e config
 	Expect(err).ToNot(HaveOccurred(), "Failed to read the libvirt host SSH key %s", keyPath)
@@ -68,6 +72,16 @@ func createHostSSHSecret(proxy framework.ClusterProxy, namespace string) {
 		},
 		Data: map[string][]byte{"ssh-privatekey": key},
 	})).To(Succeed())
+
+	hosts, err := os.ReadFile("data/hosts.yaml")
+	Expect(err).ToNot(HaveOccurred())
+	rendered := os.Expand(string(hosts), func(name string) string {
+		if name == "NAMESPACE" {
+			return namespace
+		}
+		return e2eConfig.GetVariableOrEmpty(name)
+	})
+	Expect(proxy.CreateOrUpdate(ctx, []byte(rendered))).To(Succeed())
 }
 
 // waitForControlPlaneAndInstallCNI waits for the first control plane

@@ -139,27 +139,26 @@ func rerootFieldErrors(errs field.ErrorList) field.ErrorList {
 // replicaScalingWarnings reports, without blocking, that this template cannot
 // back more than one replica.
 //
-// A LibvirtMachine names its host through the required spec.hostRef and
-// declares a static network identity, and a host runs exactly one VM, so every
-// machine stamped from one template asks for the same host and the same
-// address. Admission cannot see the replica count, so this cannot be an error:
-// a single-replica control plane is a legitimate use. It is a warning so the
-// collision is visible when the template is written rather than when the second
-// machine fails.
+// A host runs exactly one VM, so a template that pins spec.hostRef, or sets
+// static addresses, gives every machine stamped from it the same host or the
+// same address. spec.hostSelector, with addresses from each host's
+// spec.machineNetwork, scales instead. Admission cannot see the replica
+// count, so this cannot be an error: a single-replica control plane is a
+// legitimate use. It is a warning so the collision is visible when the
+// template is written rather than when the second machine fails.
 func replicaScalingWarnings(obj *infrastructurev1alpha1.LibvirtMachineTemplate) admission.Warnings {
 	var warnings admission.Warnings
-	if obj.Spec.Template.Spec.HostRef.Name != "" {
+	if ref := obj.Spec.Template.Spec.HostRef; ref != nil {
 		warnings = append(warnings,
-			"spec.template.spec.hostRef pins every machine from this template to host "+
-				obj.Spec.Template.Spec.HostRef.Name+
+			"spec.template.spec.hostRef pins every machine from this template to host "+ref.Name+
 				", and a host runs one VM; more than one replica will collide. "+
-				"CAPLV does not allocate hosts per machine yet.")
+				"Use spec.template.spec.hostSelector to let each machine claim a free host.")
 	}
 	if len(obj.Spec.Template.Spec.Network.Addresses) > 0 {
 		warnings = append(warnings,
 			"spec.template.spec.network.addresses assigns a static address to every machine from this "+
 				"template; more than one replica will produce duplicate addresses. "+
-				"CAPLV does not allocate addresses per machine yet.")
+				"Leave addresses unset to take each machine's from its host's spec.machineNetwork.")
 	}
 	return warnings
 }

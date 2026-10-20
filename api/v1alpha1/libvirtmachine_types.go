@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -183,15 +182,19 @@ type DNSSpec struct {
 }
 
 // NetworkSpec defines the network configuration for the virtual machine.
+//
+// Every field may be left to the host: unset fields are taken from the
+// LibvirtHost's spec.machineNetwork. type, name and at least one address
+// must come from one or the other.
 type NetworkSpec struct {
 	// type is the type of libvirt network attachment.
-	// +required
-	Type NetworkType `json:"type"`
+	// +optional
+	Type NetworkType `json:"type,omitempty"`
 
 	// name is the name of the libvirt network or bridge device.
-	// +required
+	// +optional
 	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 
 	// model is the NIC model.
 	// +optional
@@ -199,9 +202,8 @@ type NetworkSpec struct {
 	Model string `json:"model,omitempty"`
 
 	// addresses is a list of static IP addresses in CIDR notation (e.g. 192.168.1.10/24).
-	// +required
-	// +kubebuilder:validation:MinItems=1
-	Addresses []string `json:"addresses"`
+	// +optional
+	Addresses []string `json:"addresses,omitempty"`
 
 	// gateway is the default gateway address.
 	// +optional
@@ -255,11 +257,31 @@ type ManagedArtifacts struct {
 	AdditionalDiskVolumes []string `json:"additionalDiskVolumes,omitempty"`
 }
 
-// LibvirtMachineSpec defines the desired state of LibvirtMachine.
-type LibvirtMachineSpec struct {
-	// hostRef is a reference to a LibvirtHost resource in the same namespace.
+// LibvirtHostReference names a LibvirtHost in the referrer's namespace.
+type LibvirtHostReference struct {
+	// name is the name of the LibvirtHost.
 	// +required
-	HostRef corev1.LocalObjectReference `json:"hostRef"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+}
+
+// LibvirtMachineSpec defines the desired state of LibvirtMachine.
+// +kubebuilder:validation:XValidation:rule="has(self.hostRef) != has(self.hostSelector)",message="exactly one of hostRef and hostSelector must be set"
+type LibvirtMachineSpec struct {
+	// hostRef pins the machine to a LibvirtHost in the same namespace.
+	// Exactly one of hostRef and hostSelector must be set.
+	// +optional
+	HostRef *LibvirtHostReference `json:"hostRef,omitempty"`
+
+	// hostSelector lets CAPLV choose the host: it claims a free, ready
+	// LibvirtHost in the same namespace whose labels match, with enough
+	// capacity, preferring the host named by the Machine's failure domain
+	// when CAPI sets one. An empty selector matches every host. The chosen
+	// host is reported in status.hostRef. Exactly one of hostRef and
+	// hostSelector must be set.
+	// +optional
+	HostSelector *metav1.LabelSelector `json:"hostSelector,omitempty"`
 
 	// domain defines the virtual machine domain configuration.
 	// +required
@@ -274,8 +296,10 @@ type LibvirtMachineSpec struct {
 	AdditionalDisks []AdditionalDiskSpec `json:"additionalDisks,omitempty"`
 
 	// network defines the network configuration for the virtual machine.
-	// +required
-	Network NetworkSpec `json:"network"`
+	// Fields left unset are taken from the host's spec.machineNetwork, so a
+	// machine whose host supplies everything can omit it.
+	// +optional
+	Network NetworkSpec `json:"network,omitempty"`
 
 	// bootstrapFormat specifies the format of bootstrap data to generate.
 	// +required
@@ -307,6 +331,12 @@ type LibvirtMachineSpec struct {
 
 // LibvirtMachineStatus defines the observed state of LibvirtMachine.
 type LibvirtMachineStatus struct {
+	// hostRef is the LibvirtHost the machine runs on: spec.hostRef, or the
+	// host claimed for it through spec.hostSelector. The claim, the host's
+	// spec.consumerRef, is the record of it; this field can be rebuilt from it.
+	// +optional
+	HostRef *LibvirtHostReference `json:"hostRef,omitempty"`
+
 	// ready indicates whether the machine infrastructure is ready.
 	// +optional
 	Ready bool `json:"ready,omitempty"`
@@ -371,7 +401,7 @@ type LibvirtMachineInitializationStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:storageversion
 // +kubebuilder:resource:categories=cluster-api,shortName=libvirtm
-// +kubebuilder:printcolumn:name="Host",type="string",JSONPath=".spec.hostRef.name"
+// +kubebuilder:printcolumn:name="Host",type="string",JSONPath=".status.hostRef.name"
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.domainState"
 // +kubebuilder:printcolumn:name="ProviderID",type="string",JSONPath=".spec.providerID",priority=1

@@ -287,15 +287,19 @@ func (r *LibvirtHostReconciler) setReachable(
 	recordEvent(r.Recorder, host, eventType, reason, ActionHealthCheck, "%s", message)
 }
 
-// hasReferencingMachines returns true if any LibvirtMachine in the same
-// namespace references this host via spec.hostRef.
+// hasReferencingMachines returns true if a LibvirtMachine claims this host
+// (spec.consumerRef) or pins it through spec.hostRef. The second covers
+// machines created before claims existed, until they claim the host.
 func (r *LibvirtHostReconciler) hasReferencingMachines(ctx context.Context, host *infrav1.LibvirtHost) (bool, error) {
+	if host.Spec.ConsumerRef != nil {
+		return true, nil
+	}
 	machineList := &infrav1.LibvirtMachineList{}
 	if err := r.List(ctx, machineList, client.InNamespace(host.Namespace)); err != nil {
 		return false, err
 	}
 	for i := range machineList.Items {
-		if machineList.Items[i].Spec.HostRef.Name == host.Name {
+		if machineList.Items[i].AssignedHostName() == host.Name {
 			return true, nil
 		}
 	}
@@ -346,9 +350,13 @@ func (r *LibvirtHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				if !ok {
 					return nil
 				}
+				hostName := machine.AssignedHostName()
+				if hostName == "" {
+					return nil
+				}
 				return []ctrl.Request{{
 					NamespacedName: types.NamespacedName{
-						Name:      machine.Spec.HostRef.Name,
+						Name:      hostName,
 						Namespace: machine.Namespace,
 					},
 				}}

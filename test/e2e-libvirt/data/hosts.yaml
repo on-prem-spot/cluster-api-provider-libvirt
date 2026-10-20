@@ -1,0 +1,78 @@
+# The LibvirtHosts the quick start places its machines on, created in the
+# spec's namespace before the cluster. The suite substitutes ${VARIABLES}
+# from the e2e config and the environment. All three are the same physical
+# host: a LibvirtHost runs one VM, so each VM needs its own.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: e2e-cp
+  namespace: ${NAMESPACE}
+  labels:
+    caplv.infrastructure.cluster.x-k8s.io/role: control-plane
+spec:
+  uri: ${LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${LIBVIRT_HOST_SSH_FINGERPRINT}
+  firmwarePath: ${LIBVIRT_HOST_FIRMWARE_PATH}
+  nvramTemplatePath: ${LIBVIRT_HOST_NVRAM_TEMPLATE_PATH}
+  reservedResources:
+    vcpus: ${LIBVIRT_HOST_RESERVED_VCPUS}
+    memoryMB: ${LIBVIRT_HOST_RESERVED_MEMORY_MB}
+  machineNetwork:
+    type: network
+    name: ${NETWORK_NAME}
+    addresses: [${NETWORK_PREFIX}.10/24]
+    gateway: ${NETWORK_PREFIX}.1
+    dns:
+      nameservers: [${NETWORK_PREFIX}.1]
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: e2e-worker-1
+  namespace: ${NAMESPACE}
+  labels:
+    caplv.infrastructure.cluster.x-k8s.io/role: worker
+spec:
+  uri: ${LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${LIBVIRT_HOST_SSH_FINGERPRINT}
+  firmwarePath: ${LIBVIRT_HOST_FIRMWARE_PATH}
+  nvramTemplatePath: ${LIBVIRT_HOST_NVRAM_TEMPLATE_PATH}
+  reservedResources:
+    vcpus: ${LIBVIRT_HOST_RESERVED_VCPUS}
+    memoryMB: ${LIBVIRT_HOST_RESERVED_MEMORY_MB}
+  machineNetwork:
+    type: network
+    name: ${NETWORK_NAME}
+    addresses: [${NETWORK_PREFIX}.11/24]
+    gateway: ${NETWORK_PREFIX}.1
+    dns:
+      nameservers: [${NETWORK_PREFIX}.1]
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtHost
+metadata:
+  name: e2e-worker-2
+  namespace: ${NAMESPACE}
+  labels:
+    caplv.infrastructure.cluster.x-k8s.io/role: worker
+spec:
+  uri: ${LIBVIRT_HOST_URI}
+  secretRef:
+    name: ${LIBVIRT_HOST_SSH_SECRET}
+  hostKeyFingerprint: ${LIBVIRT_HOST_SSH_FINGERPRINT}
+  firmwarePath: ${LIBVIRT_HOST_FIRMWARE_PATH}
+  nvramTemplatePath: ${LIBVIRT_HOST_NVRAM_TEMPLATE_PATH}
+  reservedResources:
+    vcpus: ${LIBVIRT_HOST_RESERVED_VCPUS}
+    memoryMB: ${LIBVIRT_HOST_RESERVED_MEMORY_MB}
+  machineNetwork:
+    type: network
+    name: ${NETWORK_NAME}
+    addresses: [${NETWORK_PREFIX}.12/24]
+    gateway: ${NETWORK_PREFIX}.1
+    dns:
+      nameservers: [${NETWORK_PREFIX}.1]

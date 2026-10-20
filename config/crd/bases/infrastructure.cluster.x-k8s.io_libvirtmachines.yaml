@@ -19,7 +19,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.hostRef.name
+    - jsonPath: .status.hostRef.name
       name: Host
       type: string
     - jsonPath: .status.ready
@@ -137,30 +137,81 @@ spec:
                     type: integer
                 type: object
               hostRef:
-                description: hostRef is a reference to a LibvirtHost resource in the
-                  same namespace.
+                description: |-
+                  hostRef pins the machine to a LibvirtHost in the same namespace.
+                  Exactly one of hostRef and hostSelector must be set.
                 properties:
                   name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    description: name is the name of the LibvirtHost.
+                    maxLength: 253
+                    minLength: 1
                     type: string
+                required:
+                - name
+                type: object
+              hostSelector:
+                description: |-
+                  hostSelector lets CAPLV choose the host: it claims a free, ready
+                  LibvirtHost in the same namespace whose labels match, with enough
+                  capacity, preferring the host named by the Machine's failure domain
+                  when CAPI sets one. An empty selector matches every host. The chosen
+                  host is reported in status.hostRef. Exactly one of hostRef and
+                  hostSelector must be set.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
                 type: object
                 x-kubernetes-map-type: atomic
               network:
-                description: network defines the network configuration for the virtual
-                  machine.
+                description: |-
+                  network defines the network configuration for the virtual machine.
+                  Fields left unset are taken from the host's spec.machineNetwork, so a
+                  machine whose host supplies everything can omit it.
                 properties:
                   addresses:
                     description: addresses is a list of static IP addresses in CIDR
                       notation (e.g. 192.168.1.10/24).
                     items:
                       type: string
-                    minItems: 1
                     type: array
                   dns:
                     description: dns defines DNS configuration for the network.
@@ -201,10 +252,6 @@ spec:
                     - bridge
                     - network
                     type: string
-                required:
-                - addresses
-                - name
-                - type
                 type: object
               nodeAnnotations:
                 additionalProperties:
@@ -307,10 +354,11 @@ spec:
             required:
             - bootstrapFormat
             - domain
-            - hostRef
-            - network
             - rootDisk
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of hostRef and hostSelector must be set
+              rule: has(self.hostRef) != has(self.hostSelector)
           status:
             description: status defines the observed state of LibvirtMachine.
             properties:
@@ -416,6 +464,20 @@ spec:
                 description: failureReason is a machine-readable string indicating
                   the reason for a failure.
                 type: string
+              hostRef:
+                description: |-
+                  hostRef is the LibvirtHost the machine runs on: spec.hostRef, or the
+                  host claimed for it through spec.hostSelector. The claim, the host's
+                  spec.consumerRef, is the record of it; this field can be rebuilt from it.
+                properties:
+                  name:
+                    description: name is the name of the LibvirtHost.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               initialization:
                 description: |-
                   initialization reports one-time provisioning milestones, as defined by

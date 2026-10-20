@@ -115,7 +115,8 @@ func TestTemplateValidateCreate_WarnsAboutScaling(t *testing.T) {
 func TestTemplateValidateCreate_NoWarningsWhenNothingPinned(t *testing.T) {
 	v := &LibvirtMachineTemplateCustomValidator{}
 	obj := testTemplate()
-	obj.Spec.Template.Spec.HostRef.Name = ""
+	obj.Spec.Template.Spec.HostRef = nil
+	obj.Spec.Template.Spec.HostSelector = &metav1.LabelSelector{}
 	obj.Spec.Template.Spec.Network.Addresses = nil
 
 	warnings, err := v.ValidateCreate(context.Background(), obj)
