@@ -226,3 +226,47 @@ func TestMachineReportsHostAsFailureDomain(t *testing.T) {
 		t.Errorf("status.failureDomain = %q, want host-a", lm.Status.FailureDomain)
 	}
 }
+
+// With spec.controlPlaneHostSelector, only matching hosts are control plane
+// eligible, so KubeadmControlPlane never hands a control plane machine a
+// worker host it cannot select.
+func TestClusterMarksControlPlaneHosts(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := infrav1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := clusterv1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	owner := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "default"}}
+	obj := &infrav1.LibvirtCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "infra", Namespace: "default", OwnerReferences: []metav1.OwnerReference{
+			{APIVersion: clusterv1.GroupVersion.String(), Kind: "Cluster", Name: owner.Name},
+		}},
+		Spec: infrav1.LibvirtClusterSpec{ControlPlaneHostSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"role": "control-plane"},
+		}},
+	}
+	cp := &infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-cp", Namespace: "default",
+		Labels: map[string]string{"role": "control-plane"}}}
+	worker := &infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-worker", Namespace: "default",
+		Labels: map[string]string{"role": "worker"}}}
+	c := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(obj).WithObjects(owner, obj, cp, worker).Build()
+	r := &LibvirtClusterReconciler{Client: c, Scheme: s}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}); err != nil {
+		t.Fatal(err)
+	}
+	got := &infrav1.LibvirtCluster{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(obj), got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"host-cp": true, "host-worker": false}
+	if len(got.Status.FailureDomains) != len(want) {
+		t.Fatalf("failureDomains = %v, want both hosts", got.Status.FailureDomains)
+	}
+	for _, fd := range got.Status.FailureDomains {
+		if ptr.Deref(fd.ControlPlane, false) != want[fd.Name] {
+			t.Errorf("failure domain %s: controlPlane = %v, want %v", fd.Name, ptr.Deref(fd.ControlPlane, false), want[fd.Name])
+		}
+	}
+}

@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -130,6 +131,10 @@ func validateClusterSpec(spec infrastructurev1alpha1.LibvirtClusterSpec, base *f
 	}
 	if bi := spec.BaseImage; bi != nil {
 		allErrs = append(allErrs, validateBaseImageSource(bi.Source, base.Child("baseImage", "source"))...)
+	}
+	if sel := spec.ControlPlaneHostSelector; sel != nil {
+		allErrs = append(allErrs, metav1validation.ValidateLabelSelector(sel,
+			metav1validation.LabelSelectorValidationOptions{}, base.Child("controlPlaneHostSelector"))...)
 	}
 	return allErrs
 }

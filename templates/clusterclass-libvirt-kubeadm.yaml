@@ -25,6 +25,10 @@
 #     caplv.infrastructure.cluster.x-k8s.io/role=control-plane and =worker.
 #     A host runs one VM, so a role scales to as many machines as it has
 #     matching hosts.
+#   - The LibvirtCluster marks only control plane hosts as control plane
+#     failure domains (spec.controlPlaneHostSelector, set from
+#     controlPlaneHostSelector), so KubeadmControlPlane spreads its machines
+#     across hosts they can claim.
 #   - Each VM takes its network (bridge or libvirt network, address, gateway,
 #     DNS) from its host's spec.machineNetwork, so register the hosts with
 #     one before creating a cluster.
@@ -172,6 +176,21 @@ spec:
                 template: |
                   host: '{{ .controlPlaneEndpoint.host }}'
                   port: {{ .controlPlaneEndpoint.port }}
+    - name: controlPlaneFailureDomains
+      description: >-
+        Marks only the control plane hosts as control plane failure domains,
+        so KubeadmControlPlane gives its machines hosts they can claim.
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: LibvirtClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/controlPlaneHostSelector
+              valueFrom:
+                variable: controlPlaneHostSelector
     - name: rootDisk
       description: Root disk shared by every LibvirtMachine.
       definitions:

@@ -131,6 +131,13 @@ explicit addresses behave exactly as now. They become part of `v1beta2`.
   written into a template. CAPLV adds it to the NoCloud meta-data as
   `provider_id`, which bootstrap data reads as
   `{{ ds.meta_data.provider_id }}`.
+- KubeadmControlPlane may hand a control plane machine any failure domain
+  marked control plane eligible, and the machine then takes only that host.
+  With hosts split by role, a worker host offered to the control plane would
+  leave the machine waiting, so `LibvirtCluster.spec.controlPlaneHostSelector`
+  limits eligibility to the control plane hosts. The e2e suite found this:
+  the first runs passed only because KubeadmControlPlane happened to choose
+  the control plane host.
 - Claims left by a force-deleted machine are not cleared automatically. A
   cleanup that found no machine named by a claim would also fire during
   `clusterctl move`, when a host can reach the target before its machine,

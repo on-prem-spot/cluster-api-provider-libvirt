@@ -542,3 +542,11 @@ Both fields use the CAPI v1beta2 contract shapes. A machine with a
 `hostSelector` honours the failure domain CAPI chooses for it (see
 [Choosing hosts](#choosing-hosts-hostselector)); a pinned `hostRef` does
 not consult it.
+
+Every host is control plane eligible unless
+`LibvirtCluster.spec.controlPlaneHostSelector` is set, in which case only
+matching hosts are. Set it to the selector your control plane machines use
+when hosts are split by role: `KubeadmControlPlane` assigns each of its
+machines an eligible failure domain, and a host-selected machine takes only
+that host, so a worker host offered to the control plane would leave the
+machine waiting. The `libvirt-kubeadm` ClusterClass sets it.

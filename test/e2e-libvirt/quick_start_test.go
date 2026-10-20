@@ -81,7 +81,11 @@ func createHosts(proxy framework.ClusterProxy, namespace string) {
 		}
 		return e2eConfig.GetVariableOrEmpty(name)
 	})
-	Expect(proxy.CreateOrUpdate(ctx, []byte(rendered))).To(Succeed())
+	// CAPLV's deployment reports available a moment before its webhook
+	// accepts connections; retry as the framework does for its own creates.
+	Eventually(func() error {
+		return proxy.CreateOrUpdate(ctx, []byte(rendered))
+	}, "2m", "5s").Should(Succeed(), "Failed to create the LibvirtHosts")
 }
 
 // waitForControlPlaneAndInstallCNI waits for the first control plane
