@@ -21,6 +21,39 @@ needs these one-time prerequisites:
 on the OpenShift cluster. The bootstrap provider bridges OpenShift's
 ignition-based worker bootstrap with the CAPI bootstrap contract.
 
+CAPLV is not one of clusterctl's built-in providers, so register it in a
+clusterctl configuration file first:
+
+```yaml
+# clusterctl.yaml
+providers:
+  - name: libvirt
+    type: InfrastructureProvider
+    url: https://github.com/on-prem-spot/cluster-api-provider-libvirt/releases/latest/download/infrastructure-components.yaml
+```
+
+```bash
+clusterctl init --config clusterctl.yaml --infrastructure libvirt
+```
+
+This also installs cert-manager and the core CAPI providers. On OpenShift,
+the core CAPI controllers run as UID 65532, outside the UID range the
+default `restricted-v2` security context constraint allows, so their pods
+are refused until their service accounts may use `nonroot-v2`. CAPLV's own
+controller needs no such grant.
+
+```bash
+oc adm policy add-scc-to-user nonroot-v2 -z capi-manager -n capi-system
+oc adm policy add-scc-to-user nonroot-v2 -z capi-kubeadm-bootstrap-manager \
+  -n capi-kubeadm-bootstrap-system
+oc adm policy add-scc-to-user nonroot-v2 -z capi-kubeadm-control-plane-manager \
+  -n capi-kubeadm-control-plane-system
+# Restart them in case their ReplicaSets have stopped retrying.
+oc rollout restart deployment -n capi-system
+oc rollout restart deployment -n capi-kubeadm-bootstrap-system
+oc rollout restart deployment -n capi-kubeadm-control-plane-system
+```
+
 **2. Create a CAPI Cluster resource** pointing to itself:
 
 ```yaml
