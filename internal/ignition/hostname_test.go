@@ -18,6 +18,7 @@ package ignition
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -137,9 +138,6 @@ func TestInjectMachineMetadata(t *testing.T) {
 	if !paths["/etc/systemd/system/kubelet.service.d/90-provider-id.conf"] {
 		t.Error("expected kubelet provider-id drop-in")
 	}
-	if !paths["/etc/kubernetes/caplv-provider-id"] {
-		t.Error("expected caplv-provider-id file")
-	}
 }
 
 func TestInjectMachineMetadataProviderIDContent(t *testing.T) {
@@ -160,11 +158,14 @@ func TestInjectMachineMetadataProviderIDContent(t *testing.T) {
 		if fm["path"] == "/etc/systemd/system/kubelet.service.d/90-provider-id.conf" {
 			contents := fm["contents"].(map[string]any)
 			source := contents["source"].(string)
-			if !strings.Contains(source, "provider-id") {
-				t.Errorf("drop-in source = %q, want to contain 'provider-id'", source)
+			// OpenShift's kubelet.service passes --provider-id=${KUBELET_PROVIDERID}.
+			want := "[Service]\nEnvironment=\"KUBELET_PROVIDERID=libvirt:///host/domain\"\n"
+			got, err := url.PathUnescape(strings.TrimPrefix(source, "data:,"))
+			if err != nil {
+				t.Fatalf("unescaping drop-in source %q: %v", source, err)
 			}
-			if !strings.Contains(source, "libvirt") {
-				t.Errorf("drop-in source = %q, want to contain 'libvirt'", source)
+			if got != want {
+				t.Errorf("drop-in = %q, want %q", got, want)
 			}
 			return
 		}
