@@ -38,8 +38,9 @@ const (
 	EventEphemeralPoolDelete = "EphemeralPoolDestroyed"
 
 	// Failures.
-	EventProvisionFailed = "ProvisionFailed"
-	EventDeleteFailed    = "DeleteFailed"
+	EventProvisionFailed       = "ProvisionFailed"
+	EventDeleteFailed          = "DeleteFailed"
+	EventDHCPReservationFailed = "DHCPReservationFailed"
 
 	// Cluster readiness.
 	EventInfrastructureReady = "InfrastructureReady"

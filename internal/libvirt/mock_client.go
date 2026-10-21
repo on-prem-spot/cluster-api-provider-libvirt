@@ -47,8 +47,12 @@ type MockClient struct {
 	DeleteVolumeFn                 func(ctx context.Context, pool, name string) error
 	GetVolumePathFn                func(ctx context.Context, pool, name string) (string, error)
 	WriteRemoteFileFn              func(ctx context.Context, path string, data []byte) error
+	WriteRemoteFileFromFn          func(ctx context.Context, path string, r io.Reader) error
 	RemoteFileExistsFn             func(ctx context.Context, path string) (bool, error)
 	DeleteRemoteFileFn             func(ctx context.Context, path string) error
+	RemoveRemoteDirFn              func(ctx context.Context, path string) error
+	ReserveDHCPAddressFn           func(ctx context.Context, network, mac, ip, name string) error
+	ReleaseDHCPAddressFn           func(ctx context.Context, network, mac string) error
 	CloseFn                        func() error
 }
 
@@ -244,6 +248,14 @@ func (m *MockClient) WriteRemoteFile(ctx context.Context, path string, data []by
 	return nil
 }
 
+// WriteRemoteFileFrom delegates to WriteRemoteFileFromFn or returns nil.
+func (m *MockClient) WriteRemoteFileFrom(ctx context.Context, path string, r io.Reader) error {
+	if m.WriteRemoteFileFromFn != nil {
+		return m.WriteRemoteFileFromFn(ctx, path, r)
+	}
+	return nil
+}
+
 // RemoteFileExists delegates to RemoteFileExistsFn or returns false, nil.
 func (m *MockClient) RemoteFileExists(ctx context.Context, path string) (bool, error) {
 	if m.RemoteFileExistsFn != nil {
@@ -256,6 +268,30 @@ func (m *MockClient) RemoteFileExists(ctx context.Context, path string) (bool, e
 func (m *MockClient) DeleteRemoteFile(ctx context.Context, path string) error {
 	if m.DeleteRemoteFileFn != nil {
 		return m.DeleteRemoteFileFn(ctx, path)
+	}
+	return nil
+}
+
+// ReserveDHCPAddress delegates to ReserveDHCPAddressFn or returns nil.
+func (m *MockClient) ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error {
+	if m.ReserveDHCPAddressFn != nil {
+		return m.ReserveDHCPAddressFn(ctx, network, mac, ip, name)
+	}
+	return nil
+}
+
+// ReleaseDHCPAddress delegates to ReleaseDHCPAddressFn or returns nil.
+func (m *MockClient) ReleaseDHCPAddress(ctx context.Context, network, mac string) error {
+	if m.ReleaseDHCPAddressFn != nil {
+		return m.ReleaseDHCPAddressFn(ctx, network, mac)
+	}
+	return nil
+}
+
+// RemoveRemoteDir delegates to RemoveRemoteDirFn or returns nil.
+func (m *MockClient) RemoveRemoteDir(ctx context.Context, path string) error {
+	if m.RemoveRemoteDirFn != nil {
+		return m.RemoveRemoteDirFn(ctx, path)
 	}
 	return nil
 }

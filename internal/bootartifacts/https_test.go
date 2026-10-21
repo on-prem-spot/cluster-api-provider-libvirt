@@ -124,7 +124,7 @@ func TestHTTPSResolver_Resolve(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &HTTPSResolver{Client: tls.Client()}
+			r := &HTTPSResolver{Client: tls.Client(), Dir: t.TempDir()}
 			got, err := r.Resolve(context.Background(), tc.src, nil)
 			if tc.wantErr {
 				if err == nil {
@@ -144,10 +144,10 @@ func TestHTTPSResolver_Resolve(t *testing.T) {
 			if got.InitramfsSHA256 != initramfsDigest {
 				t.Errorf("initramfs digest: got %s, want %s", got.InitramfsSHA256, initramfsDigest)
 			}
-			if string(got.KernelBytes) != string(kernel) {
+			if string(artifactBytes(t, got.KernelPath)) != string(kernel) {
 				t.Errorf("kernel bytes differ")
 			}
-			if string(got.InitramfsBytes) != string(initramfs) {
+			if string(artifactBytes(t, got.InitramfsPath)) != string(initramfs) {
 				t.Errorf("initramfs bytes differ")
 			}
 		})
@@ -155,7 +155,7 @@ func TestHTTPSResolver_Resolve(t *testing.T) {
 }
 
 func TestMultiResolver_DispatchesByType(t *testing.T) {
-	m := NewMultiResolver()
+	m := NewMultiResolver(t.TempDir())
 
 	_, err := m.Resolve(context.Background(), infrav1.BootArtifactsSource{Type: "Garbage"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "unsupported") {

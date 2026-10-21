@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path"
@@ -289,6 +290,7 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 
 	// Fetch SSH secret and create clients.
 	sshClient, libvirtClient, err := r.createClients(ctx, libvirtHost)
+	setHostReachableCondition(libvirtMachine, err)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create clients: %w", err)
 	}
@@ -1269,18 +1271,45 @@ func (r *LibvirtMachineReconciler) reconcileBootArtifacts(ctx context.Context, r
 	kernelPath := path.Join(hostPath, artifacts.KernelSHA256, "vmlinuz")
 	initrdPath := path.Join(hostPath, artifacts.InitramfsSHA256, "initramfs.img")
 
-	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, kernelPath, artifacts.KernelBytes); err != nil {
+	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, kernelPath, artifacts.KernelPath); err != nil {
 		return r.handleLibvirtError(rc.libvirtMachine, err, "staging boot kernel")
 	}
-	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, initrdPath, artifacts.InitramfsBytes); err != nil {
+	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, initrdPath, artifacts.InitramfsPath); err != nil {
 		return r.handleLibvirtError(rc.libvirtMachine, err, "staging boot initramfs")
 	}
 
 	rc.kernelPath = kernelPath
 	rc.initrdPath = initrdPath
-	rc.kernelCmdline = ba.KernelArgs
+	rc.kernelCmdline = directBootCmdline(ba.KernelArgs, rc.libvirtMachine.Spec.BootstrapFormat, rc.network(),
+		rc.machineScope.Hostname())
 	log.Info("Direct-boot artifacts staged", "kernel", kernelPath, "initrd", initrdPath)
 	return nil
+}
+
+// directBootCmdline is the kernel command line of a direct-boot machine: the
+// cluster's kernelArgs, plus, for an Ignition machine with static addresses,
+// the dracut arguments that give the initramfs its address, so that Ignition
+// can fetch a pointer config's target (OpenShift's machine config server)
+// on a network without DHCP. kernelArgs that already set ip= are left alone.
+func directBootCmdline(kernelArgs string, format infrav1.BootstrapFormat, network infrav1.NetworkSpec,
+	hostname string) string {
+	if format != infrav1.BootstrapFormatIgnition {
+		return kernelArgs
+	}
+	for arg := range strings.FieldsSeq(kernelArgs) {
+		if strings.HasPrefix(arg, "ip=") {
+			return kernelArgs
+		}
+	}
+	cfg := ignition.NetworkConfig{Addresses: network.Addresses, Gateway: network.Gateway}
+	if network.DNS != nil {
+		cfg.DNSServers = network.DNS.Nameservers
+	}
+	netArgs := ignition.KernelNetworkArgs(cfg, hostname)
+	if netArgs == "" {
+		return kernelArgs
+	}
+	return strings.TrimSpace(kernelArgs + " " + netArgs)
 }
 
 func (r *LibvirtMachineReconciler) resolveCachedArtifacts(
@@ -1494,11 +1523,14 @@ func hostFromURL(raw string) string {
 	return u.Host
 }
 
+// ensureRemoteArtifact copies the boot artifact at localPath, in the
+// manager's cache, to remotePath on the host unless it is there already,
+// streaming it: an initramfs does not fit in the manager's memory.
 func (r *LibvirtMachineReconciler) ensureRemoteArtifact(
 	ctx context.Context,
 	c libvirt.Client,
 	remotePath string,
-	data []byte,
+	localPath string,
 ) error {
 	exists, err := c.RemoteFileExists(ctx, remotePath)
 	if err != nil {
@@ -1507,7 +1539,12 @@ func (r *LibvirtMachineReconciler) ensureRemoteArtifact(
 	if exists {
 		return nil
 	}
-	return c.WriteRemoteFile(ctx, remotePath, data)
+	f, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("open cached boot artifact: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return c.WriteRemoteFileFrom(ctx, remotePath, f)
 }
 
 // bootArtifactsCacheKey produces a stable cache key from a source spec so we
@@ -1601,6 +1638,9 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 				fmt.Sprintf("failed to generate domain XML: %v", err))
 			return nil, nil
 		}
+
+		reserveDHCPAddress(ctx, r.Recorder, libvirtClient, libvirtMachine, network,
+			rc.machineScope.MACAddress(), rc.machineScope.Hostname())
 
 		if _, err := libvirtClient.DefineDomain(ctx, xmlDef); err != nil {
 			log.Error(err, "Failed to define domain", "domain", rc.domainName)
@@ -1763,6 +1803,9 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 			"Destroyed ephemeral tmpfs pool %q", ephPoolName)
 	}
 
+	removeIgnitionDir(ctx, libvirtClient, libvirtMachine, machineScope.IgnitionFilePath())
+	releaseDHCPAddress(ctx, libvirtClient, machineScope.Network(), machineScope.MACAddress())
+
 	// Delete the Node object from the cluster if it exists and is genuinely
 	// this machine's. The name alone does not prove that (see
 	// nodeBelongsToMachine), and deleting a Node evicts its workloads.
@@ -1814,6 +1857,96 @@ func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infr
 
 	libvirtClient := r.LibvirtClientFactory(sshClient, connURI)
 	return sshClient, libvirtClient, nil
+}
+
+// reserveDHCPAddress reserves a machine's static address for its MAC on its
+// libvirt network (network.type "network"), when that network has no DHCP
+// range of its own, so the guest also gets an address by DHCP before its own
+// network configuration applies. That is what an Ignition pointer config,
+// such as OpenShift's worker-user-data, needs: Ignition fetches its target
+// from the initramfs, before the keyfile CAPLV injects takes effect. A
+// network with a range already gives the initramfs an address and is left
+// alone. Failing is not fatal, since a complete bootstrap config needs no
+// network that early; it is logged and recorded.
+func reserveDHCPAddress(
+	ctx context.Context,
+	recorder events.EventRecorder,
+	c libvirt.Client,
+	lm *infrav1.LibvirtMachine,
+	network infrav1.NetworkSpec,
+	mac, hostname string,
+) {
+	if network.Type != infrav1.NetworkTypeNetwork {
+		return
+	}
+	ip := firstIPv4(network.Addresses)
+	if ip == "" {
+		return
+	}
+	if err := c.ReserveDHCPAddress(ctx, network.Name, mac, ip, hostname); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to reserve DHCP address (non-fatal)", "network", network.Name, "ip", ip)
+		recordEvent(recorder, lm, corev1.EventTypeWarning, EventDHCPReservationFailed, ActionProvision,
+			"Could not reserve %s on libvirt network %q for DHCP; a bootstrap config fetched from the "+
+				"network at first boot will not get an address: %v", ip, network.Name, err)
+	}
+}
+
+// releaseDHCPAddress removes the reservation reserveDHCPAddress made, once the
+// machine's VM is gone. Failing is not fatal: a stale reservation only holds
+// an address the machine no longer uses.
+func releaseDHCPAddress(ctx context.Context, c libvirt.Client, network infrav1.NetworkSpec, mac string) {
+	if network.Type != infrav1.NetworkTypeNetwork {
+		return
+	}
+	if err := c.ReleaseDHCPAddress(ctx, network.Name, mac); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to release DHCP reservation (non-fatal)", "network", network.Name)
+	}
+}
+
+// firstIPv4 returns the address, without the prefix length, of the first IPv4
+// CIDR in addresses, or "".
+func firstIPv4(addresses []string) string {
+	for _, addr := range addresses {
+		if ip, _, err := net.ParseCIDR(addr); err == nil && ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+// removeIgnitionDir removes the directory that held an ignition machine's
+// ignition file, once the file is deleted. The directory is the machine's,
+// under /run/caplv, and an ephemeral pool mounted there has removed it
+// already. Failing is not fatal: hosts set up before caplv-hostctl had rmdir
+// refuse the action, and the empty directory then lasts only until the host
+// reboots, since /run is a tmpfs.
+func removeIgnitionDir(ctx context.Context, c libvirt.Client, lm *infrav1.LibvirtMachine, ignitionFile string) {
+	if lm.Spec.BootstrapFormat != infrav1.BootstrapFormatIgnition {
+		return
+	}
+	dir := path.Dir(ignitionFile)
+	if err := c.RemoveRemoteDir(ctx, dir); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to remove machine artifact directory (non-fatal)", "path", dir)
+	}
+}
+
+// setHostReachableCondition records whether the controller could connect to
+// the machine's host. It runs on every reconcile that gets past the host's
+// readiness check, so it also replaces the HostNotReady reported while the
+// host was not Ready.
+func setHostReachableCondition(lm *infrav1.LibvirtMachine, connectErr error) {
+	condition := metav1.Condition{
+		Type:               infrav1.HostReachableForMachineCondition,
+		Status:             metav1.ConditionTrue,
+		Reason:             infrav1.ReasonConnectionSucceeded,
+		ObservedGeneration: lm.Generation,
+	}
+	if connectErr != nil {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = infrav1.ReasonConnectionFailed
+		condition.Message = connectErr.Error()
+	}
+	apimeta.SetStatusCondition(&lm.Status.Conditions, condition)
 }
 
 // handleLibvirtError inspects the error and returns an appropriate error.

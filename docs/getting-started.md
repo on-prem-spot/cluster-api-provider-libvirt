@@ -21,6 +21,39 @@ needs these one-time prerequisites:
 on the OpenShift cluster. The bootstrap provider bridges OpenShift's
 ignition-based worker bootstrap with the CAPI bootstrap contract.
 
+CAPLV is not one of clusterctl's built-in providers, so register it in a
+clusterctl configuration file first:
+
+```yaml
+# clusterctl.yaml
+providers:
+  - name: libvirt
+    type: InfrastructureProvider
+    url: https://github.com/on-prem-spot/cluster-api-provider-libvirt/releases/latest/download/infrastructure-components.yaml
+```
+
+```bash
+clusterctl init --config clusterctl.yaml --infrastructure libvirt
+```
+
+This also installs cert-manager and the core CAPI providers. On OpenShift,
+the core CAPI controllers run as UID 65532, outside the UID range the
+default `restricted-v2` security context constraint allows, so their pods
+are refused until their service accounts may use `nonroot-v2`. CAPLV's own
+controller needs no such grant.
+
+```bash
+oc adm policy add-scc-to-user nonroot-v2 -z capi-manager -n capi-system
+oc adm policy add-scc-to-user nonroot-v2 -z capi-kubeadm-bootstrap-manager \
+  -n capi-kubeadm-bootstrap-system
+oc adm policy add-scc-to-user nonroot-v2 -z capi-kubeadm-control-plane-manager \
+  -n capi-kubeadm-control-plane-system
+# Restart them in case their ReplicaSets have stopped retrying.
+oc rollout restart deployment -n capi-system
+oc rollout restart deployment -n capi-kubeadm-bootstrap-system
+oc rollout restart deployment -n capi-kubeadm-control-plane-system
+```
+
 **2. Create a CAPI Cluster resource** pointing to itself:
 
 ```yaml
@@ -37,7 +70,28 @@ spec:
     apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: my-ocp-cluster
+  controlPlaneRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtExternalControlPlane
+    name: my-ocp-cluster
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtExternalControlPlane
+metadata:
+  name: my-ocp-cluster
+  namespace: default
+spec: {}
 ```
+
+The LibvirtExternalControlPlane stands for OpenShift's own control plane,
+which is not made of CAPI Machines (see
+[ADR 0007](adr/0007-external-control-plane.md)). It reports the control
+plane initialized and available, so CAPI checks the workers' node health and
+runs MachineHealthChecks. It also maintains the
+`my-ocp-cluster-kubeconfig` Secret that CAPI reaches the cluster with: a
+short-lived token for a ServiceAccount that can do only what CAPI needs to
+Nodes. To use a kubeconfig of your own instead, create that Secret first;
+CAPLV leaves a Secret it did not create alone.
 
 **3. Create a LibvirtCluster resource** (CAPLV reports ready once the endpoint
 host and port are configured):
@@ -136,22 +190,53 @@ image for an OCP 4.21 cluster). Download from
 `https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/<version>/latest/`.
 
 **7. Deploy a MachineHealthCheck** (recommended — see
-[Troubleshooting](troubleshooting.md#machinehealthcheck-recommended)).
+[Troubleshooting](troubleshooting.md#machinehealthcheck-recommended)). It
+needs the LibvirtExternalControlPlane from step 2: CAPI evaluates worker
+health only once the Cluster reports its control plane initialized.
 
 ## Create a worker directly
 
-First, fetch the worker ignition from the Machine Config Server on a
-cluster node and create a bootstrap secret:
+First, create a bootstrap Secret with the worker's Ignition config. On a
+libvirt network (`network.type: network`), use OpenShift's own worker
+*pointer* config, the one the Machine API uses:
 
 ```bash
-ssh core@<node-ip> "sudo curl -sk \
-  -H 'Accept: application/vnd.coreos.ignition+json;version=3.2.0' \
-  https://localhost:22623/config/worker" > worker-ignition.json
+kubectl get secret -n openshift-machine-api worker-user-data \
+  -o jsonpath='{.data.userData}' | base64 -d > worker-ignition.json
 
 kubectl create secret generic worker-bootstrap -n default \
   --from-file=value=worker-ignition.json \
   --from-literal=format=ignition
 ```
+
+It is about 2 KB and tells Ignition to fetch the rest from the cluster's
+machine config server (`api-int:22623`) at first boot, so it stays current
+across upgrades and certificate rotations. Ignition fetches it from the
+initramfs, before the static address CAPLV gives the VM takes effect, so the
+initramfs needs an address of its own. A libvirt network with a DHCP range
+gives it one. On a network without one, such as a routed network for static
+addresses, CAPLV reserves each VM's address for its MAC, so the network
+answers the initramfs by DHCP and still hands out no other address.
+
+On a bridge (`network.type: bridge`), CAPLV does not control DHCP. Use the
+pointer config if the LAN's DHCP gives the VM an address at first boot.
+Otherwise, use the whole rendered config, fetched from the machine config
+server on a cluster node:
+
+```bash
+ssh core@<node-ip> "sudo curl -sk \
+  -H 'Accept: application/vnd.coreos.ignition+json;version=3.2.0' \
+  https://localhost:22623/config/worker" > worker-ignition.json
+```
+
+It needs no network at first boot, but it is about 500 KB, so:
+
+- It is slow to read over QEMU fw_cfg. The kernel driver slows down as the
+  file grows, and a VM on a nested-virtualization host took about six
+  minutes.
+- `kubectl apply` cannot store it, because the last-applied annotation is
+  limited to 256 KB; use `kubectl create` or server-side apply.
+- It goes stale: fetch it again after cluster upgrades.
 
 Then create a Machine + LibvirtMachine:
 

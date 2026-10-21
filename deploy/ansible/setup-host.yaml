@@ -72,19 +72,15 @@
 
     # ── SSH key pair ──────────────────────────────────────────
 
-    - name: Check if SSH key pair already exists
-      ansible.builtin.stat:
-        path: "{{ ssh_key_path }}"
-      register: ssh_key_stat
-      delegate_to: localhost
-      become: false
-
+    # One key pair serves every host in the play. The local tasks run once,
+    # not once per host, or parallel runs race to create the same file.
     - name: Generate SSH key pair
       ansible.builtin.command:
         cmd: ssh-keygen -t ed25519 -f {{ ssh_key_path }} -N "" -C "caplv-service-account"
+        creates: "{{ ssh_key_path }}"
       delegate_to: localhost
       become: false
-      when: not ssh_key_stat.stat.exists
+      run_once: true
 
     - name: Read public key
       ansible.builtin.slurp:
@@ -92,6 +88,7 @@
       register: ssh_pub_key
       delegate_to: localhost
       become: false
+      run_once: true
 
     # ── Service account ───────────────────────────────────────
 
@@ -147,7 +144,12 @@
           # root. Managed by deploy/ansible/setup-host.yaml; do not edit in place.
           set -euo pipefail
 
+          # Per-machine artifacts (ignition configs, ephemeral pools) live on
+          # the /run tmpfs. Artifacts that must survive a reboot, such as the
+          # kernels and initramfs images of direct kernel boot, which a VM
+          # needs at every boot, live under /var/lib/caplv.
           readonly BASE=/run/caplv
+          readonly PERSISTENT_BASE=/var/lib/caplv
           readonly LIBVIRT_MODE={{ libvirt_mode | quote }}
           readonly CAPLV_USER={{ caplv_user | quote }}
 
@@ -164,24 +166,40 @@
           die() { printf 'caplv-hostctl: %s\n' "$*" >&2; exit 1; }
 
           usage() {
-            die "usage: caplv-hostctl {mkdir|write|rm|exists|mount-tmpfs|umount} <path> [arg]"
+            die "usage: caplv-hostctl {mkdir|write|rm|rmdir|exists|mount-tmpfs|umount} <path> [arg]"
           }
 
-          # Canonicalise PATH and require the result to stay under $BASE.
-          # realpath -m resolves '..' and any symlinked component without
-          # requiring the leaf to exist, so neither traversal nor a planted
-          # symlink can point the operation outside the CAPLV directory.
+          # Canonicalise PATH and require the result to stay under $BASE or
+          # $PERSISTENT_BASE. realpath -m resolves '..' and any symlinked
+          # component without requiring the leaf to exist, so neither
+          # traversal nor a planted symlink can point the operation outside
+          # the CAPLV directories.
           resolve() {
             local raw=$1 canon
             [[ $raw == /* ]] || die "path must be absolute: $raw"
             canon=$(realpath -m -- "$raw") || die "cannot resolve path: $raw"
-            [[ $canon == "$BASE" || $canon == "$BASE"/* ]] \
-              || die "refusing to operate outside $BASE: $raw -> $canon"
+            [[ $canon == "$BASE" || $canon == "$BASE"/* ||
+               $canon == "$PERSISTENT_BASE" || $canon == "$PERSISTENT_BASE"/* ]] \
+              || die "refusing to operate outside $BASE and $PERSISTENT_BASE: $raw -> $canon"
             printf '%s' "$canon"
           }
 
+          # base_of prints the CAPLV directory a resolved path is under.
+          base_of() {
+            if [[ $1 == "$PERSISTENT_BASE" || $1 == "$PERSISTENT_BASE"/* ]]; then
+              printf '%s' "$PERSISTENT_BASE"
+            else
+              printf '%s' "$BASE"
+            fi
+          }
+
           ensure_base() {
-            install -d -m 0755 -o root -g root -- "$BASE"
+            install -d -m 0755 -o root -g root -- "$(base_of "$target")"
+          }
+
+          # tmpfs mounts belong on /run, never on the persistent directory.
+          require_run() {
+            [[ $(base_of "$target") == "$BASE" ]] || die "refusing to $action outside $BASE: $target"
           }
 
           [[ $# -ge 2 ]] || usage
@@ -219,6 +237,13 @@
               [[ $# -eq 2 ]] || usage
               rm -f -- "$target"
               ;;
+            rmdir)
+              [[ $# -eq 2 ]] || usage
+              # A machine's artifact directory, once its files are deleted.
+              # rmdir refuses a non-empty directory; a missing one is done.
+              [[ $target != "$BASE" && $target != "$PERSISTENT_BASE" ]] || die "refusing to remove $target"
+              [[ ! -e $target ]] || rmdir -- "$target"
+              ;;
             exists)
               [[ $# -eq 2 ]] || usage
               # The artifact directories are not world-traversable any more, so
@@ -227,6 +252,7 @@
               ;;
             mount-tmpfs)
               [[ $# -le 3 ]] || usage
+              require_run
               # A bare `mount -t tmpfs` leaves the mount root 1777 (tmpfs's
               # default), i.e. world-writable, so uid/gid/mode are always set.
               opts="mode=$DIR_MODE"
@@ -253,6 +279,7 @@
               ;;
             umount)
               [[ $# -eq 2 ]] || usage
+              require_run
               umount -- "$target" 2>/dev/null || true
               rmdir -- "$target" 2>/dev/null || true
               ;;
@@ -449,13 +476,15 @@
       ansible.builtin.command: "{{ virsh }} version"
       changed_when: false
 
+    # Connect the way Ansible did: the host's own default address need not
+    # be reachable from here (cloud instances, NAT, jump hosts).
     - name: Test SSH connectivity as caplv user
       ansible.builtin.command: >
         ssh -i {{ ssh_key_path }}
         -o IdentitiesOnly=yes
         -o StrictHostKeyChecking=no
         -o UserKnownHostsFile=/dev/null
-        {{ caplv_user }}@{{ ansible_default_ipv4.address }}
+        {{ caplv_user }}@{{ ansible_host | default(inventory_hostname) }}
         virsh -c qemu:///{{ libvirt_mode }} version
       delegate_to: localhost
       become: false

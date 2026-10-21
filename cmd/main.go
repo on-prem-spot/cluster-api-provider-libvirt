@@ -32,6 +32,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -77,6 +78,7 @@ func main() {
 	var enableHTTP2 bool
 	var maxConcurrentReconciles int
 	var baseImageCacheDir string
+	var bootArtifactsCacheDir string
 	var allowInsecureHostKeys bool
 	var allowInsecureImageTransport bool
 	var watchFilterValue string
@@ -106,6 +108,10 @@ func main() {
 		"Directory inside the controller pod where base qcow2 images are staged "+
 			"after download. Should be backed by an emptyDir (or a PVC if survival "+
 			"across pod restarts is desired). Content-addressed by sha256.")
+	flag.StringVar(&bootArtifactsCacheDir, "boot-artifacts-cache-dir", "/var/cache/caplv/bootartifacts",
+		"Directory inside the controller pod where LibvirtCluster.spec.bootArtifacts kernels "+
+			"and initramfs images are staged after download, before they are copied to hosts. "+
+			"Should be backed by an emptyDir. Content-addressed by sha256.")
 	flag.BoolVar(&allowInsecureHostKeys, "allow-insecure-host-keys", false,
 		"Connect to a LibvirtHost that has no spec.hostKeyFingerprint, accepting any SSH host key. "+
 			"Off by default: an unverified SSH channel exposes the worker ignition config, which "+
@@ -238,7 +244,7 @@ func main() {
 		setupLog.Info("WARNING: --allow-insecure-image-transport is set; base images may be " +
 			"fetched over unauthenticated transports")
 	}
-	bootArtifactsResolver := bootartifacts.NewMultiResolver()
+	bootArtifactsResolver := bootartifacts.NewMultiResolver(bootArtifactsCacheDir)
 	bootArtifactsResolver.AllowInsecureTransport = allowInsecureImageTransport
 	baseImageResolver := imagecache.NewMultiResolver()
 	baseImageResolver.AllowInsecureTransport = allowInsecureImageTransport
@@ -299,6 +305,40 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtClusterIdentity")
 			os.Exit(1)
 		}
+	}
+	// The external control plane writes the API server the manager reaches,
+	// and its CA, into <cluster>-kubeconfig: Cluster API runs in the same
+	// cluster and reaches it the same way.
+	restConfig := mgr.GetConfig()
+	caData := restConfig.CAData
+	if len(caData) == 0 && restConfig.CAFile != "" {
+		if caData, err = os.ReadFile(restConfig.CAFile); err != nil {
+			setupLog.Error(err, "Failed to read the API server CA", "file", restConfig.CAFile)
+			os.Exit(1)
+		}
+	}
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	if err != nil {
+		setupLog.Error(err, "Failed to create discovery client")
+		os.Exit(1)
+	}
+	if err := (&controller.LibvirtExternalControlPlaneReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorder("libvirtexternalcontrolplane-controller"),
+		WatchFilterValue: watchFilterValue,
+		APIServer:        restConfig.Host,
+		CAData:           caData,
+		ServerVersion: func() (string, error) {
+			info, err := discoveryClient.ServerVersion()
+			if err != nil {
+				return "", err
+			}
+			return info.GitVersion, nil
+		},
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtExternalControlPlane")
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 

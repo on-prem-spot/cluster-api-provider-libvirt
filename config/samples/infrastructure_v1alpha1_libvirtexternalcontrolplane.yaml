@@ -1,0 +1,10 @@
+# The control plane of the cluster CAPLV runs on, for a Cluster that adds
+# workers to it: name it in the Cluster's spec.controlPlaneRef.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtExternalControlPlane
+metadata:
+  labels:
+    app.kubernetes.io/name: caplv
+    app.kubernetes.io/managed-by: kustomize
+  name: libvirtexternalcontrolplane-sample
+spec: {}

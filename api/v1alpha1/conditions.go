@@ -57,6 +57,16 @@ const (
 	CleanupStalledCondition          = "CleanupStalled"
 	NodeLabelledCondition            = "NodeLabelled"
 
+	// LibvirtExternalControlPlane conditions
+	//
+	// AvailableCondition reports whether the control plane accepts requests
+	// and Cluster API can reach it. Cluster API mirrors it into the Cluster's
+	// ControlPlaneAvailable condition.
+	AvailableCondition = "Available"
+	// KubeconfigReadyCondition reports whether the <cluster>-kubeconfig Secret
+	// Cluster API reaches the cluster with is in place and current.
+	KubeconfigReadyCondition = "KubeconfigReady"
+
 	// Reasons — terminal. A LibvirtMachine reports these on its Ready and
 	// InfrastructureReady conditions, and in status.failureReason, once
 	// provisioning has stopped for good; the machine has to be replaced.
@@ -118,6 +128,17 @@ const (
 	ReasonNodeLabelled                   = "NodeLabelled"
 	ReasonBaseImageStaged                = "BaseImageStaged"
 	ReasonBootstrapDataReady             = "BootstrapDataReady"
+	ReasonAvailable                      = "Available"
+	ReasonKubeconfigReady                = "KubeconfigReady"
+	// ReasonUserProvidedKubeconfig is set when a <cluster>-kubeconfig Secret
+	// exists that CAPLV did not create; CAPLV uses it and leaves it alone.
+	ReasonUserProvidedKubeconfig = "UserProvidedKubeconfig"
+	// ReasonWaitingForCluster is set on a LibvirtExternalControlPlane until a
+	// Cluster names it in spec.controlPlaneRef and so owns it.
+	ReasonWaitingForCluster = "WaitingForCluster"
+	// ReasonKubeconfigFailed is set when CAPLV could not create or refresh
+	// the <cluster>-kubeconfig Secret.
+	ReasonKubeconfigFailed = "KubeconfigFailed"
 
 	// Reasons — cleanup
 	ReasonCleanupStalled   = "CleanupStalled"
@@ -128,7 +149,11 @@ const (
 
 	// Finalizers
 	MachineFinalizer = "infrastructure.cluster.x-k8s.io/libvirt-machine"
-	HostFinalizer    = "infrastructure.cluster.x-k8s.io/libvirt-host"
+	// ExternalControlPlaneFinalizer removes the cluster-scoped
+	// ClusterRoleBinding behind a LibvirtExternalControlPlane's kubeconfig,
+	// which no namespaced object can own.
+	ExternalControlPlaneFinalizer = "infrastructure.cluster.x-k8s.io/libvirt-external-control-plane"
+	HostFinalizer                 = "infrastructure.cluster.x-k8s.io/libvirt-host"
 
 	// Node annotations CAPLV writes to track the label/annotation keys it
 	// manages on a Node. Used to compute a clean removal when keys disappear
@@ -165,5 +190,15 @@ func (o *LibvirtHost) GetConditions() []metav1.Condition {
 
 // SetConditions updates the conditions used by CAPI's metav1 condition utilities.
 func (o *LibvirtHost) SetConditions(conditions []metav1.Condition) {
+	o.Status.Conditions = conditions
+}
+
+// GetConditions returns the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtExternalControlPlane) GetConditions() []metav1.Condition {
+	return o.Status.Conditions
+}
+
+// SetConditions updates the conditions used by CAPI's metav1 condition utilities.
+func (o *LibvirtExternalControlPlane) SetConditions(conditions []metav1.Condition) {
 	o.Status.Conditions = conditions
 }

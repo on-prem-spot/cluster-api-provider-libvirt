@@ -90,6 +90,8 @@ spec:
           mountPath: /tmp
         - name: base-image-cache
           mountPath: /var/cache/caplv/baseimages
+        - name: boot-artifacts-cache
+          mountPath: /var/cache/caplv/bootartifacts
       volumes:
       - name: tmp
         emptyDir: {}
@@ -100,5 +102,11 @@ spec:
       - name: base-image-cache
         emptyDir:
           sizeLimit: 20Gi
+      # boot-artifacts-cache holds the kernels and initramfs images fetched
+      # for LibvirtCluster.spec.bootArtifacts before they are copied onto
+      # libvirt hosts; an RHCOS pair is about 120 MB.
+      - name: boot-artifacts-cache
+        emptyDir:
+          sizeLimit: 2Gi
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

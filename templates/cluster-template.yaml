@@ -54,6 +54,19 @@ spec:
     apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: ${CLUSTER_NAME}
+  # The existing control plane of the cluster CAPLV runs on; see
+  # docs/adr/0007-external-control-plane.md.
+  controlPlaneRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtExternalControlPlane
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtExternalControlPlane
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec: {}
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtCluster
