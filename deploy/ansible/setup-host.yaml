@@ -72,19 +72,15 @@
 
     # ── SSH key pair ──────────────────────────────────────────
 
-    - name: Check if SSH key pair already exists
-      ansible.builtin.stat:
-        path: "{{ ssh_key_path }}"
-      register: ssh_key_stat
-      delegate_to: localhost
-      become: false
-
+    # One key pair serves every host in the play. The local tasks run once,
+    # not once per host, or parallel runs race to create the same file.
     - name: Generate SSH key pair
       ansible.builtin.command:
         cmd: ssh-keygen -t ed25519 -f {{ ssh_key_path }} -N "" -C "caplv-service-account"
+        creates: "{{ ssh_key_path }}"
       delegate_to: localhost
       become: false
-      when: not ssh_key_stat.stat.exists
+      run_once: true
 
     - name: Read public key
       ansible.builtin.slurp:
@@ -92,6 +88,7 @@
       register: ssh_pub_key
       delegate_to: localhost
       become: false
+      run_once: true
 
     # ── Service account ───────────────────────────────────────
 
@@ -449,13 +446,15 @@
       ansible.builtin.command: "{{ virsh }} version"
       changed_when: false
 
+    # Connect the way Ansible did: the host's own default address need not
+    # be reachable from here (cloud instances, NAT, jump hosts).
     - name: Test SSH connectivity as caplv user
       ansible.builtin.command: >
         ssh -i {{ ssh_key_path }}
         -o IdentitiesOnly=yes
         -o StrictHostKeyChecking=no
         -o UserKnownHostsFile=/dev/null
-        {{ caplv_user }}@{{ ansible_default_ipv4.address }}
+        {{ caplv_user }}@{{ ansible_host | default(inventory_hostname) }}
         virsh -c qemu:///{{ libvirt_mode }} version
       delegate_to: localhost
       become: false
