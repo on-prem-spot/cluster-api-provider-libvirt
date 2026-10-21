@@ -1,0 +1,41 @@
+# What Cluster API may do in the cluster CAPLV runs on, through the
+# <cluster>-kubeconfig Secret a LibvirtExternalControlPlane maintains: probe
+# the API server, find and label Nodes, drain and delete them, and wait for
+# their volumes to detach. CAPLV binds it to one ServiceAccount per
+# LibvirtExternalControlPlane and may bind nothing else (its "bind" permission
+# names this role alone). kustomize's namePrefix makes the name
+# caplv-capi-workload-access, which the controller refers to.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capi-workload-access
+rules:
+  # The cluster cache's health probe.
+  - nonResourceURLs: ["/"]
+    verbs: [get]
+  # Node references, labels, taints, cordoning and deletion.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch, patch, update, delete]
+  # Draining: the Node's Pods, their namespaces and DaemonSets, and eviction.
+  # Getting a Pod also lets Cluster API recognise its own, and so that it runs
+  # in this very cluster.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, list, watch]
+  # Waiting for volumes to detach before the machine is deleted.
+  - apiGroups: [""]
+    resources: [persistentvolumes]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [volumeattachments]
+    verbs: [get, list, watch]

@@ -70,26 +70,28 @@ spec:
     apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: my-ocp-cluster
+  controlPlaneRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtExternalControlPlane
+    name: my-ocp-cluster
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtExternalControlPlane
+metadata:
+  name: my-ocp-cluster
+  namespace: default
+spec: {}
 ```
 
-CAPI reads the cluster it manages through a `<cluster name>-kubeconfig`
-Secret, which on OpenShift is the cluster itself. Without it, Machines never
-get a `nodeRef` and stay in the `Provisioned` phase after their nodes join.
-Use a kubeconfig whose credentials can read Nodes; the installer's admin
-kubeconfig works:
-
-```bash
-kubectl create secret generic my-ocp-cluster-kubeconfig -n default \
-  --from-file=value=kubeconfig
-kubectl label secret my-ocp-cluster-kubeconfig -n default \
-  cluster.x-k8s.io/cluster-name=my-ocp-cluster
-```
-
-The Cluster reports `ControlPlaneInitialized=False`, since its control plane
-is not made of CAPI Machines, and Machines' `NodeHealthy` condition stays
-`Unknown` as a result. Provisioning, joining and deleting workers do not
-depend on it, but a MachineHealthCheck, which reads `NodeHealthy`, cannot
-remediate these Machines.
+The LibvirtExternalControlPlane stands for OpenShift's own control plane,
+which is not made of CAPI Machines (see
+[ADR 0007](adr/0007-external-control-plane.md)). It reports the control
+plane initialized and available, so CAPI checks the workers' node health and
+runs MachineHealthChecks. It also maintains the
+`my-ocp-cluster-kubeconfig` Secret that CAPI reaches the cluster with: a
+short-lived token for a ServiceAccount that can do only what CAPI needs to
+Nodes. To use a kubeconfig of your own instead, create that Secret first;
+CAPLV leaves a Secret it did not create alone.
 
 **3. Create a LibvirtCluster resource** (CAPLV reports ready once the endpoint
 host and port are configured):
@@ -187,13 +189,10 @@ version should match the OpenShift cluster version (e.g., use the 4.21
 image for an OCP 4.21 cluster). Download from
 `https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/<version>/latest/`.
 
-**7. Deploy a MachineHealthCheck** (see
-[Troubleshooting](troubleshooting.md#machinehealthcheck-recommended)).
-CAPI evaluates worker health only once the Cluster reports
-`ControlPlaneInitialized`, which a Cluster whose control plane is OpenShift's
-own, rather than CAPI Machines, never does (see step 2). Until CAPLV can
-report the existing control plane to CAPI, a MachineHealthCheck on such a
-Cluster does not remediate anything.
+**7. Deploy a MachineHealthCheck** (recommended — see
+[Troubleshooting](troubleshooting.md#machinehealthcheck-recommended)). It
+needs the LibvirtExternalControlPlane from step 2: CAPI evaluates worker
+health only once the Cluster reports its control plane initialized.
 
 ## Create a worker directly
 

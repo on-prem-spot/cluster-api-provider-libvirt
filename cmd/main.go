@@ -32,6 +32,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -304,6 +305,40 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "LibvirtClusterIdentity")
 			os.Exit(1)
 		}
+	}
+	// The external control plane writes the API server the manager reaches,
+	// and its CA, into <cluster>-kubeconfig: Cluster API runs in the same
+	// cluster and reaches it the same way.
+	restConfig := mgr.GetConfig()
+	caData := restConfig.CAData
+	if len(caData) == 0 && restConfig.CAFile != "" {
+		if caData, err = os.ReadFile(restConfig.CAFile); err != nil {
+			setupLog.Error(err, "Failed to read the API server CA", "file", restConfig.CAFile)
+			os.Exit(1)
+		}
+	}
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	if err != nil {
+		setupLog.Error(err, "Failed to create discovery client")
+		os.Exit(1)
+	}
+	if err := (&controller.LibvirtExternalControlPlaneReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorder("libvirtexternalcontrolplane-controller"),
+		WatchFilterValue: watchFilterValue,
+		APIServer:        restConfig.Host,
+		CAData:           caData,
+		ServerVersion: func() (string, error) {
+			info, err := discoveryClient.ServerVersion()
+			if err != nil {
+				return "", err
+			}
+			return info.GitVersion, nil
+		},
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "LibvirtExternalControlPlane")
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 
