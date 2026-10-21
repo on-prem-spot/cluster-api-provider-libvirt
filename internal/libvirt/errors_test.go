@@ -82,3 +82,18 @@ func TestIsTerminal(t *testing.T) {
 		t.Error("IsTerminal should return false for non-LibvirtError")
 	}
 }
+
+func TestIsDomainNotRunning(t *testing.T) {
+	// What virsh destroy prints for a domain that is shut off.
+	shutOff := ClassifyVirshError("error: Failed to destroy domain 'w1'\n"+
+		"error: Requested operation is not valid: domain is not running", "destroy", "w1")
+	if !isDomainNotRunning(shutOff) {
+		t.Error("isDomainNotRunning should return true for a shut-off domain")
+	}
+	if isDomainNotRunning(ClassifyVirshError("error: Failed to connect socket", "destroy", "w1")) {
+		t.Error("isDomainNotRunning should return false for other errors")
+	}
+	if isDomainNotRunning(nil) {
+		t.Error("isDomainNotRunning should return false for nil")
+	}
+}

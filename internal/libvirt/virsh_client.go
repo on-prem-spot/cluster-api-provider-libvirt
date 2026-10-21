@@ -384,7 +384,7 @@ func (c *VirshClient) StartDomain(ctx context.Context, name string) error {
 // DestroyDomain forcibly stops a running domain.
 func (c *VirshClient) DestroyDomain(ctx context.Context, name string) error {
 	_, err := c.runVirsh(ctx, "destroy", name)
-	if IsNotFound(err) {
+	if IsNotFound(err) || isDomainNotRunning(err) {
 		return nil // already off or gone
 	}
 	return err
