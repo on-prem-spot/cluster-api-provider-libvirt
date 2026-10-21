@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path"
@@ -1295,7 +1296,7 @@ func directBootCmdline(kernelArgs string, format infrav1.BootstrapFormat, networ
 	if format != infrav1.BootstrapFormatIgnition {
 		return kernelArgs
 	}
-	for _, arg := range strings.Fields(kernelArgs) {
+	for arg := range strings.FieldsSeq(kernelArgs) {
 		if strings.HasPrefix(arg, "ip=") {
 			return kernelArgs
 		}
@@ -1638,6 +1639,9 @@ func (r *LibvirtMachineReconciler) reconcileDomain(ctx context.Context, rc *reco
 			return nil, nil
 		}
 
+		reserveDHCPAddress(ctx, r.Recorder, libvirtClient, libvirtMachine, network,
+			rc.machineScope.MACAddress(), rc.machineScope.Hostname())
+
 		if _, err := libvirtClient.DefineDomain(ctx, xmlDef); err != nil {
 			log.Error(err, "Failed to define domain", "domain", rc.domainName)
 			return nil, r.handleLibvirtError(libvirtMachine, err, "defining domain")
@@ -1800,6 +1804,7 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 	}
 
 	removeIgnitionDir(ctx, libvirtClient, libvirtMachine, machineScope.IgnitionFilePath())
+	releaseDHCPAddress(ctx, libvirtClient, machineScope.Network(), machineScope.MACAddress())
 
 	// Delete the Node object from the cluster if it exists and is genuinely
 	// this machine's. The name alone does not prove that (see
@@ -1852,6 +1857,59 @@ func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infr
 
 	libvirtClient := r.LibvirtClientFactory(sshClient, connURI)
 	return sshClient, libvirtClient, nil
+}
+
+// reserveDHCPAddress reserves a machine's static address for its MAC on its
+// libvirt network (network.type "network"), so the guest also gets the
+// address by DHCP before its own network configuration applies. That is what
+// an Ignition pointer config, such as OpenShift's worker-user-data, needs:
+// Ignition fetches its target from the initramfs, before the keyfile CAPLV
+// injects takes effect. Failing is not fatal, since a complete bootstrap
+// config needs no network that early; it is logged and recorded.
+func reserveDHCPAddress(
+	ctx context.Context,
+	recorder events.EventRecorder,
+	c libvirt.Client,
+	lm *infrav1.LibvirtMachine,
+	network infrav1.NetworkSpec,
+	mac, hostname string,
+) {
+	if network.Type != infrav1.NetworkTypeNetwork {
+		return
+	}
+	ip := firstIPv4(network.Addresses)
+	if ip == "" {
+		return
+	}
+	if err := c.ReserveDHCPAddress(ctx, network.Name, mac, ip, hostname); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to reserve DHCP address (non-fatal)", "network", network.Name, "ip", ip)
+		recordEvent(recorder, lm, corev1.EventTypeWarning, EventDHCPReservationFailed, ActionProvision,
+			"Could not reserve %s on libvirt network %q for DHCP; a bootstrap config fetched from the "+
+				"network at first boot will not get an address: %v", ip, network.Name, err)
+	}
+}
+
+// releaseDHCPAddress removes the reservation reserveDHCPAddress made, once the
+// machine's VM is gone. Failing is not fatal: a stale reservation only holds
+// an address the machine no longer uses.
+func releaseDHCPAddress(ctx context.Context, c libvirt.Client, network infrav1.NetworkSpec, mac string) {
+	if network.Type != infrav1.NetworkTypeNetwork {
+		return
+	}
+	if err := c.ReleaseDHCPAddress(ctx, network.Name, mac); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to release DHCP reservation (non-fatal)", "network", network.Name)
+	}
+}
+
+// firstIPv4 returns the address, without the prefix length, of the first IPv4
+// CIDR in addresses, or "".
+func firstIPv4(addresses []string) string {
+	for _, addr := range addresses {
+		if ip, _, err := net.ParseCIDR(addr); err == nil && ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return ""
 }
 
 // removeIgnitionDir removes the directory that held an ignition machine's

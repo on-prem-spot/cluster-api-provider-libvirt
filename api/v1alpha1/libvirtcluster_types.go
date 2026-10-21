@@ -203,6 +203,10 @@ type BootArtifactsSpec struct {
 	// responsible for setting an ignition.config.url that reads from the virtio-blk
 	// ignition disk (serial=ignition), e.g.
 	//   "ignition.platform.id=metal ignition.config.url=oem:/dev/disk/by-id/virtio-ignition console=ttyS0"
+	// For an Ignition machine with a static address, CAPLV appends the dracut
+	// arguments (ip=, nameserver=, rd.neednet=1) that give the initramfs that
+	// address, so Ignition can fetch a pointer config's target, unless
+	// KernelArgs already sets ip=.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	KernelArgs string `json:"kernelArgs"`

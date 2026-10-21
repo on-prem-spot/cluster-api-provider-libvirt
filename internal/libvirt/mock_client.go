@@ -51,6 +51,8 @@ type MockClient struct {
 	RemoteFileExistsFn             func(ctx context.Context, path string) (bool, error)
 	DeleteRemoteFileFn             func(ctx context.Context, path string) error
 	RemoveRemoteDirFn              func(ctx context.Context, path string) error
+	ReserveDHCPAddressFn           func(ctx context.Context, network, mac, ip, name string) error
+	ReleaseDHCPAddressFn           func(ctx context.Context, network, mac string) error
 	CloseFn                        func() error
 }
 
@@ -266,6 +268,22 @@ func (m *MockClient) RemoteFileExists(ctx context.Context, path string) (bool, e
 func (m *MockClient) DeleteRemoteFile(ctx context.Context, path string) error {
 	if m.DeleteRemoteFileFn != nil {
 		return m.DeleteRemoteFileFn(ctx, path)
+	}
+	return nil
+}
+
+// ReserveDHCPAddress delegates to ReserveDHCPAddressFn or returns nil.
+func (m *MockClient) ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error {
+	if m.ReserveDHCPAddressFn != nil {
+		return m.ReserveDHCPAddressFn(ctx, network, mac, ip, name)
+	}
+	return nil
+}
+
+// ReleaseDHCPAddress delegates to ReleaseDHCPAddressFn or returns nil.
+func (m *MockClient) ReleaseDHCPAddress(ctx context.Context, network, mac string) error {
+	if m.ReleaseDHCPAddressFn != nil {
+		return m.ReleaseDHCPAddressFn(ctx, network, mac)
 	}
 	return nil
 }

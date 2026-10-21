@@ -51,8 +51,8 @@ type NetworkConfig struct {
 //   - nodeip-configuration detects the correct static IP
 //   - configure-ovs migrates the static config to br-ex
 //   - CRI-O and kubelet get the right IP from the start
-func InjectStaticNetwork(ignitionData []byte, net NetworkConfig) ([]byte, error) {
-	if len(net.Addresses) == 0 {
+func InjectStaticNetwork(ignitionData []byte, netCfg NetworkConfig) ([]byte, error) {
+	if len(netCfg.Addresses) == 0 {
 		return ignitionData, nil
 	}
 
@@ -78,11 +78,11 @@ func InjectStaticNetwork(ignitionData []byte, net NetworkConfig) ([]byte, error)
 	}
 
 	// Default DNS to the gateway if not explicitly set.
-	if len(net.DNSServers) == 0 && net.Gateway != "" {
-		net.DNSServers = []string{net.Gateway}
+	if len(netCfg.DNSServers) == 0 && netCfg.Gateway != "" {
+		netCfg.DNSServers = []string{netCfg.Gateway}
 	}
 
-	nmConn := generateNMConnection(net)
+	nmConn := generateNMConnection(netCfg)
 	injectFile(config,
 		"/etc/NetworkManager/system-connections/"+nicName+".nmconnection",
 		"data:,"+url.PathEscape(nmConn), 0o600, isV3)
@@ -96,7 +96,7 @@ const nicName = "enp1s0"
 
 // generateNMConnection creates a NetworkManager keyfile that configures
 // enp1s0 with a static IP. configure-ovs.sh will migrate this to br-ex.
-func generateNMConnection(net NetworkConfig) string {
+func generateNMConnection(netCfg NetworkConfig) string {
 	var b strings.Builder
 
 	b.WriteString("[connection]\n")
@@ -109,17 +109,17 @@ func generateNMConnection(net NetworkConfig) string {
 
 	b.WriteString("[ipv4]\n")
 	b.WriteString("method=manual\n")
-	for i, addr := range net.Addresses {
+	for i, addr := range netCfg.Addresses {
 		b.WriteString(fmt.Sprintf("address%d=%s\n", i+1, addr))
 	}
-	if net.Gateway != "" {
-		b.WriteString(fmt.Sprintf("gateway=%s\n", net.Gateway))
+	if netCfg.Gateway != "" {
+		b.WriteString(fmt.Sprintf("gateway=%s\n", netCfg.Gateway))
 	}
-	if len(net.DNSServers) > 0 {
-		b.WriteString(fmt.Sprintf("dns=%s;\n", strings.Join(net.DNSServers, ";")))
+	if len(netCfg.DNSServers) > 0 {
+		b.WriteString(fmt.Sprintf("dns=%s;\n", strings.Join(netCfg.DNSServers, ";")))
 	}
-	if len(net.DNSSearch) > 0 {
-		b.WriteString(fmt.Sprintf("dns-search=%s;\n", strings.Join(net.DNSSearch, ";")))
+	if len(netCfg.DNSSearch) > 0 {
+		b.WriteString(fmt.Sprintf("dns-search=%s;\n", strings.Join(netCfg.DNSSearch, ";")))
 	}
 	b.WriteString("\n")
 

@@ -714,6 +714,45 @@ func (c *VirshClient) DeleteRemoteFile(ctx context.Context, path string) error {
 	return c.runSSH(ctx, hostCtlCmd("rm", path))
 }
 
+// ReserveDHCPAddress makes the libvirt network hand ip to mac by DHCP, with
+// hostname name, replacing an earlier reservation for mac. On a network
+// without DHCP, libvirt adds a static-only DHCP range, so the network still
+// hands out no address it was not told to.
+func (c *VirshClient) ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error {
+	host := fmt.Sprintf("<host mac='%s' name='%s' ip='%s'/>", xmlAttr(mac), xmlAttr(name), xmlAttr(ip))
+	add := func() error {
+		_, err := c.runVirsh(ctx, "net-update", network, "add-last", "ip-dhcp-host", host, "--live", "--config")
+		return err
+	}
+	err := add()
+	if err != nil && strings.Contains(err.Error(), "existing dhcp host entry") {
+		if err := c.ReleaseDHCPAddress(ctx, network, mac); err != nil {
+			return err
+		}
+		err = add()
+	}
+	return err
+}
+
+// ReleaseDHCPAddress removes the libvirt network's DHCP reservation for mac;
+// there being none is not an error.
+func (c *VirshClient) ReleaseDHCPAddress(ctx context.Context, network, mac string) error {
+	host := fmt.Sprintf("<host mac='%s'/>", xmlAttr(mac))
+	_, err := c.runVirsh(ctx, "net-update", network, "delete", "ip-dhcp-host", host, "--live", "--config")
+	if err != nil && strings.Contains(err.Error(), "couldn't locate a matching dhcp host entry") {
+		return nil
+	}
+	return err
+}
+
+// xmlAttrEscaper escapes a string for an XML attribute value.
+var xmlAttrEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "'", "&apos;", `"`, "&quot;")
+
+// xmlAttr escapes s for an XML attribute value.
+func xmlAttr(s string) string {
+	return xmlAttrEscaper.Replace(s)
+}
+
 // RemoveRemoteDir removes an empty directory on the remote host via SSH.
 func (c *VirshClient) RemoveRemoteDir(ctx context.Context, path string) error {
 	return c.runSSH(ctx, hostCtlCmd("rmdir", path))

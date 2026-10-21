@@ -79,5 +79,9 @@ type Client interface {
 	// RemoveRemoteDir removes an empty directory on the remote host; a
 	// missing one is not an error.
 	RemoveRemoteDir(ctx context.Context, path string) error
+	// ReserveDHCPAddress makes a libvirt network hand ip to mac by DHCP.
+	ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error
+	// ReleaseDHCPAddress removes a libvirt network's DHCP reservation for mac.
+	ReleaseDHCPAddress(ctx context.Context, network, mac string) error
 	Close() error
 }
