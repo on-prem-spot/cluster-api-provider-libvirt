@@ -715,33 +715,50 @@ func (c *VirshClient) DeleteRemoteFile(ctx context.Context, path string) error {
 }
 
 // ReserveDHCPAddress makes the libvirt network hand ip to mac by DHCP, with
-// hostname name, replacing an earlier reservation for mac. On a network
-// without DHCP, libvirt adds a static-only DHCP range, so the network still
-// hands out no address it was not told to.
+// hostname name, if the network would give the guest no address of its own:
+// it has no DHCP range. Such a network gets a static-only range from
+// libvirt, so it still hands out no address it was not told to. A network
+// with a range is left alone (see dhcpReservationAction).
 func (c *VirshClient) ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error {
-	host := fmt.Sprintf("<host mac='%s' name='%s' ip='%s'/>", xmlAttr(mac), xmlAttr(name), xmlAttr(ip))
-	add := func() error {
-		_, err := c.runVirsh(ctx, "net-update", network, "add-last", "ip-dhcp-host", host, "--live", "--config")
+	networkXML, err := c.runVirsh(ctx, "net-dumpxml", network)
+	if err != nil {
 		return err
 	}
-	err := add()
-	if err != nil && strings.Contains(err.Error(), "existing dhcp host entry") {
-		if err := c.ReleaseDHCPAddress(ctx, network, mac); err != nil {
+	action, err := dhcpReservationAction(networkXML, mac, ip)
+	if err != nil || action == dhcpLeaveAlone {
+		return err
+	}
+	if action == dhcpReplace {
+		if err := c.deleteDHCPHost(ctx, network, mac); err != nil {
 			return err
 		}
-		err = add()
 	}
+	host := fmt.Sprintf("<host mac='%s' name='%s' ip='%s'/>", xmlAttr(mac), xmlAttr(name), xmlAttr(ip))
+	_, err = c.runVirsh(ctx, "net-update", network, "add-last", "ip-dhcp-host", host, "--live", "--config")
 	return err
 }
 
-// ReleaseDHCPAddress removes the libvirt network's DHCP reservation for mac;
-// there being none is not an error.
+// ReleaseDHCPAddress removes the libvirt network's DHCP reservation for mac,
+// if there is one. It checks first: even a failed update makes libvirt
+// rebuild the network's firewall rules.
 func (c *VirshClient) ReleaseDHCPAddress(ctx context.Context, network, mac string) error {
+	networkXML, err := c.runVirsh(ctx, "net-dumpxml", network)
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	reserved, err := dhcpReservedFor(networkXML, mac)
+	if err != nil || !reserved {
+		return err
+	}
+	return c.deleteDHCPHost(ctx, network, mac)
+}
+
+func (c *VirshClient) deleteDHCPHost(ctx context.Context, network, mac string) error {
 	host := fmt.Sprintf("<host mac='%s'/>", xmlAttr(mac))
 	_, err := c.runVirsh(ctx, "net-update", network, "delete", "ip-dhcp-host", host, "--live", "--config")
-	if err != nil && strings.Contains(err.Error(), "couldn't locate a matching dhcp host entry") {
-		return nil
-	}
 	return err
 }
 

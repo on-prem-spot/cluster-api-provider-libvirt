@@ -213,9 +213,10 @@ It is about 2 KB and tells Ignition to fetch the rest from the cluster's
 machine config server (`api-int:22623`) at first boot, so it stays current
 across upgrades and certificate rotations. Ignition fetches it from the
 initramfs, before the static address CAPLV gives the VM takes effect, so the
-initramfs needs an address of its own: CAPLV reserves each VM's address for
-its MAC on the libvirt network, which then answers the initramfs by DHCP
-(and hands out no other address).
+initramfs needs an address of its own. A libvirt network with a DHCP range
+gives it one. On a network without one, such as a routed network for static
+addresses, CAPLV reserves each VM's address for its MAC, so the network
+answers the initramfs by DHCP and still hands out no other address.
 
 On a bridge (`network.type: bridge`), CAPLV does not control DHCP. Use the
 pointer config if the LAN's DHCP gives the VM an address at first boot.

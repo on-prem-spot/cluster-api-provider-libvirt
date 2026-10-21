@@ -1860,12 +1860,14 @@ func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infr
 }
 
 // reserveDHCPAddress reserves a machine's static address for its MAC on its
-// libvirt network (network.type "network"), so the guest also gets the
-// address by DHCP before its own network configuration applies. That is what
-// an Ignition pointer config, such as OpenShift's worker-user-data, needs:
-// Ignition fetches its target from the initramfs, before the keyfile CAPLV
-// injects takes effect. Failing is not fatal, since a complete bootstrap
-// config needs no network that early; it is logged and recorded.
+// libvirt network (network.type "network"), when that network has no DHCP
+// range of its own, so the guest also gets an address by DHCP before its own
+// network configuration applies. That is what an Ignition pointer config,
+// such as OpenShift's worker-user-data, needs: Ignition fetches its target
+// from the initramfs, before the keyfile CAPLV injects takes effect. A
+// network with a range already gives the initramfs an address and is left
+// alone. Failing is not fatal, since a complete bootstrap config needs no
+// network that early; it is logged and recorded.
 func reserveDHCPAddress(
 	ctx context.Context,
 	recorder events.EventRecorder,
