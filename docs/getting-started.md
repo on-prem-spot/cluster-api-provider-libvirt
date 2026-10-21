@@ -72,6 +72,25 @@ spec:
     name: my-ocp-cluster
 ```
 
+CAPI reads the cluster it manages through a `<cluster name>-kubeconfig`
+Secret, which on OpenShift is the cluster itself. Without it, Machines never
+get a `nodeRef` and stay in the `Provisioned` phase after their nodes join.
+Use a kubeconfig whose credentials can read Nodes; the installer's admin
+kubeconfig works:
+
+```bash
+kubectl create secret generic my-ocp-cluster-kubeconfig -n default \
+  --from-file=value=kubeconfig
+kubectl label secret my-ocp-cluster-kubeconfig -n default \
+  cluster.x-k8s.io/cluster-name=my-ocp-cluster
+```
+
+The Cluster reports `ControlPlaneInitialized=False`, since its control plane
+is not made of CAPI Machines, and Machines' `NodeHealthy` condition stays
+`Unknown` as a result. Provisioning, joining and deleting workers do not
+depend on it, but a MachineHealthCheck, which reads `NodeHealthy`, cannot
+remediate these Machines.
+
 **3. Create a LibvirtCluster resource** (CAPLV reports ready once the endpoint
 host and port are configured):
 
@@ -168,8 +187,13 @@ version should match the OpenShift cluster version (e.g., use the 4.21
 image for an OCP 4.21 cluster). Download from
 `https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/<version>/latest/`.
 
-**7. Deploy a MachineHealthCheck** (recommended — see
+**7. Deploy a MachineHealthCheck** (see
 [Troubleshooting](troubleshooting.md#machinehealthcheck-recommended)).
+CAPI evaluates worker health only once the Cluster reports
+`ControlPlaneInitialized`, which a Cluster whose control plane is OpenShift's
+own, rather than CAPI Machines, never does (see step 2). Until CAPLV can
+report the existing control plane to CAPI, a MachineHealthCheck on such a
+Cluster does not remediate anything.
 
 ## Create a worker directly
 
