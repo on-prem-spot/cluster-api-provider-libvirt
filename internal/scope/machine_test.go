@@ -106,6 +106,28 @@ func TestMACAddress(t *testing.T) {
 	}
 }
 
+// A VM that replaces another at the same static address must get the same
+// MAC, or the DHCP lease the old one left blocks the address for the new one.
+func TestMACAddress_FollowsTheStaticAddress(t *testing.T) {
+	withAddress := func(machine, address string) *MachineScope {
+		s := newTestScope()
+		s.LibvirtMachine.Name = machine
+		s.LibvirtMachine.Spec.Network = infrav1.NetworkSpec{Type: infrav1.NetworkTypeNetwork, Name: "caplv",
+			Addresses: []string{address}}
+		return s
+	}
+	first, replacement := withAddress("worker-a", "10.200.2.10/24"), withAddress("worker-b", "10.200.2.10/24")
+	if first.MACAddress() != replacement.MACAddress() {
+		t.Errorf("replacement at the same address got MAC %s, want %s", replacement.MACAddress(), first.MACAddress())
+	}
+	if other := withAddress("worker-a", "10.200.3.10/24"); other.MACAddress() == first.MACAddress() {
+		t.Errorf("different addresses got the same MAC %s", first.MACAddress())
+	}
+	if noAddress := newTestScope(); noAddress.MACAddress() == first.MACAddress() {
+		t.Error("a machine without a static address should derive its MAC from its domain name")
+	}
+}
+
 func TestRootDiskVolumeName(t *testing.T) {
 	s := newTestScope()
 	got := s.RootDiskVolumeName()

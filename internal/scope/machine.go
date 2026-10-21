@@ -108,15 +108,27 @@ func (s *MachineScope) Hostname() string {
 }
 
 // MACAddress returns the MAC address of the machine's NIC: spec.network's
-// macAddress when set, and otherwise one derived from the domain name in
-// QEMU's 52:54:00 range. Deriving it makes it known before the domain is
-// defined, so cloud-init's network configuration can match the NIC by it,
-// and stable across reconciles.
+// macAddress when set, and otherwise one derived in QEMU's 52:54:00 range.
+// Deriving it makes it known before the domain is defined, so cloud-init's
+// network configuration and the DHCP reservation can match the NIC by it,
+// and keeps it stable across reconciles.
+//
+// A machine with a static address derives it from the network and that
+// address, so it belongs to the address rather than the machine: a VM that
+// replaces another at the same address (a host's machineNetwork outlives
+// the VMs it runs) gets the same MAC, and the DHCP lease and the peers' ARP
+// entries the old VM left behind still fit. With a MAC of its own, the new
+// VM would get no address by DHCP until the old lease expired. Without a
+// static address, the MAC is derived from the domain name.
 func (s *MachineScope) MACAddress() string {
 	if mac := s.LibvirtMachine.Spec.Network.MACAddress; mac != "" {
 		return mac
 	}
-	sum := sha256.Sum256([]byte(s.DomainName()))
+	seed := s.DomainName()
+	if network := s.Network(); len(network.Addresses) > 0 {
+		seed = network.Name + "/" + network.Addresses[0]
+	}
+	sum := sha256.Sum256([]byte(seed))
 	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", sum[0], sum[1], sum[2])
 }
 
