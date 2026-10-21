@@ -98,7 +98,10 @@ const (
 	// ReasonNoHostAvailable: no free, ready host matches spec.hostSelector.
 	// ReasonHostInUse: the pinned spec.hostRef is claimed by another machine.
 	ReasonNoHostAvailable = "NoHostAvailable"
-	ReasonHostInUse       = "HostInUse"
+	// ReasonHostCordoned: the machine's host has spec.unschedulable set, so
+	// CAPLV neither assigns it nor creates or starts the machine's VM there.
+	ReasonHostCordoned = "HostCordoned"
+	ReasonHostInUse    = "HostInUse"
 	// ReasonNetworkIncomplete: neither the machine's spec.network nor its
 	// host's spec.machineNetwork gives a type, name or address.
 	ReasonNetworkIncomplete     = "NetworkIncomplete"

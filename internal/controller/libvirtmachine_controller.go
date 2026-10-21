@@ -377,6 +377,10 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 	log = log.WithValues("host", libvirtHost.Name, "domain", rc.domainName)
 	ctx = logf.IntoContext(ctx, log)
 
+	if wait, err := r.waitWhileCordoned(ctx, rc); wait || err != nil {
+		return ctrl.Result{RequeueAfter: hostNotReadyRequeueInterval}, err
+	}
+
 	// Step -3: Session-mode hosts cannot attach machines to libvirt-managed
 	// networks — the per-user daemon has no network driver. Catch the mismatch
 	// here as a clear, terminal condition instead of letting virsh start fail
@@ -1912,6 +1916,39 @@ func firstIPv4(addresses []string) string {
 		}
 	}
 	return ""
+}
+
+// waitWhileCordoned reports whether the machine must wait because its host is
+// cordoned and its VM is not running. A cordoned host keeps the VMs it runs,
+// but CAPLV creates and starts none there: not a new one, and not one that
+// was stopped, which is how a host's capacity is reclaimed at once (virsh
+// destroy) without CAPLV starting the VM again on its next reconcile.
+func (r *LibvirtMachineReconciler) waitWhileCordoned(ctx context.Context, rc *reconcileCtx) (bool, error) {
+	if !rc.libvirtHost.Spec.Unschedulable {
+		return false, nil
+	}
+	exists, err := rc.libvirtClient.DomainExists(ctx, rc.domainName)
+	if err != nil {
+		return false, r.handleLibvirtError(rc.libvirtMachine, err, "checking domain")
+	}
+	if exists {
+		info, err := rc.libvirtClient.GetDomain(ctx, rc.domainName)
+		if err != nil {
+			return false, r.handleLibvirtError(rc.libvirtMachine, err, "getting domain info")
+		}
+		if info.State == "running" {
+			return false, nil
+		}
+	}
+	logf.FromContext(ctx).Info("LibvirtHost is cordoned; not creating or starting the domain", "host", rc.libvirtHost.Name)
+	apimeta.SetStatusCondition(&rc.libvirtMachine.Status.Conditions, metav1.Condition{
+		Type:               infrav1.InfrastructureReadyCondition,
+		Status:             metav1.ConditionFalse,
+		Reason:             infrav1.ReasonHostCordoned,
+		Message:            fmt.Sprintf("LibvirtHost %s is cordoned (spec.unschedulable); its VM is not running", rc.libvirtHost.Name),
+		ObservedGeneration: rc.libvirtMachine.Generation,
+	})
+	return true, nil
 }
 
 // removeIgnitionDir removes the directory that held an ignition machine's

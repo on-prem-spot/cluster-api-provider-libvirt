@@ -82,6 +82,12 @@ func (r *LibvirtMachineReconciler) resolveHost(
 		return nil, fmt.Errorf("failed to get LibvirtHost: %w", err)
 	}
 	if !deleting {
+		// A cordoned host keeps the machine that holds it, but takes no other.
+		if host.Spec.Unschedulable && consumerName(host) != lm.Name {
+			setHostAssignedCondition(lm, metav1.ConditionFalse, infrav1.ReasonHostCordoned,
+				fmt.Sprintf("LibvirtHost %s is cordoned (spec.unschedulable)", host.Name))
+			return nil, nil
+		}
 		claimed, err := r.claimHost(ctx, host, lm)
 		if err != nil {
 			return nil, err
@@ -165,7 +171,7 @@ func (r *LibvirtMachineReconciler) claimHostFromSelector(
 }
 
 // eligibleHosts returns, sorted by name, the hosts a machine may claim: ones
-// matching the selector, ready, unclaimed, not being deleted, in the
+// matching the selector, ready, unclaimed, not cordoned, not being deleted, in the
 // machine's failure domain when CAPI chose one, and with the capacity the
 // machine asks for.
 func eligibleHosts(
@@ -181,6 +187,7 @@ func eligibleHosts(
 		case !selector.Matches(labels.Set(host.Labels)),
 			!host.DeletionTimestamp.IsZero(),
 			host.Spec.ConsumerRef != nil,
+			host.Spec.Unschedulable,
 			!host.Status.Ready:
 			continue
 		case machine != nil && machine.Spec.FailureDomain != "" && machine.Spec.FailureDomain != host.Name:

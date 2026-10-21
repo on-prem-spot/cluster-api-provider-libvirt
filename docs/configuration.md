@@ -553,6 +553,37 @@ waits with `InfrastructureReady=False`, reason `NetworkIncomplete`.
 IP address pools (the CAPI IPAM contract) are planned as a second source of
 addresses; see [ADR 0006](adr/0006-host-and-address-allocation.md).
 
+## Cordoning a host (`unschedulable`)
+
+A LibvirtHost can be cordoned while its capacity belongs to something else,
+the way `kubectl cordon` marks a Node:
+
+```bash
+kubectl patch libvirthost rhel-host-01 --type merge -p '{"spec":{"unschedulable":true}}'
+```
+
+While `spec.unschedulable` is true:
+
+- **No new machines.** No machine is given the host unless it already holds
+  it. A host-selected machine claims another host, and a machine pinned to
+  it with `hostRef` waits with `HostAssigned=False, reason HostCordoned`.
+- **No control plane placement.** The LibvirtCluster leaves the host out of
+  its failure domains, so KubeadmControlPlane does not place a machine there.
+- **No VM is created or started.** A VM already running keeps running. A
+  VM that is stopped, or stopped later (`virsh destroy`), stays stopped:
+  its LibvirtMachine reports `InfrastructureReady=False, reason
+  HostCordoned` rather than CAPLV starting it again.
+
+This makes it possible to take a host's resources back within seconds,
+without waiting for Cluster API. First cordon the host, then destroy its VM
+on the host itself, then delete the machine's Machine (or let a
+MachineHealthCheck do it), so that a MachineDeployment replaces it on
+another host. `docs/demos/postgres-ha.md` does this from a Pacemaker
+resource when a PostgreSQL standby is promoted on the host.
+
+Set `spec.unschedulable` back to false to uncordon. CAPLV retries machines
+waiting for the host within 30 seconds.
+
 ## Failure domains
 
 Each `LibvirtHost` is a failure domain. `LibvirtCluster.status.failureDomains`

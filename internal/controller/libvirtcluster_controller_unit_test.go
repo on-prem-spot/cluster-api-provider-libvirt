@@ -183,6 +183,8 @@ func TestClusterReportsHostsAsFailureDomains(t *testing.T) {
 		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-gone", Namespace: "default",
 			DeletionTimestamp: &now, Finalizers: []string{infrav1.HostFinalizer}}},
 		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-elsewhere", Namespace: "other"}},
+		&infrav1.LibvirtHost{ObjectMeta: metav1.ObjectMeta{Name: "host-cordoned", Namespace: "default"},
+			Spec: infrav1.LibvirtHostSpec{Unschedulable: true}},
 	}
 
 	for _, tc := range []struct {
