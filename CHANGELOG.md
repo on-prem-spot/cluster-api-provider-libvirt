@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With direct kernel boot, an Ignition machine with a static address gets dracut `ip=`/`nameserver=` kernel arguments, so its initramfs has that address too (#62).
 - `LibvirtHost.spec.unschedulable` cordons a host: CAPLV gives it to no new machine, offers it as no failure domain, and creates or starts no VM on it, including one stopped to reclaim the host, while VMs already running keep running. A "Cordoned" column shows it.
 - `hack/aws-openshift` builds a single-node OpenShift (platform none) test environment on AWS, with RHEL 9 and 10 libvirt hosts using nested virtualization, and runs the getting started guide against it.
+- A demo, `docs/demos/postgres-ha.md`, lends the idle standbys of a RHEL High Availability PostgreSQL cluster to OpenShift as CAPLV workers for a Kueue batch job, and takes them back with a Pacemaker resource that kills the VMs and cordons the host when a standby is promoted. Its narrated web app can kill the primary and recover it.
+
+### Changed
+
+- A machine with a static address on a libvirt network gets a MAC derived from the network and that address, instead of from its name, so the VM that replaces it gets the same MAC and the guest's DHCP lease and reservation still match.
 
 ### Fixed
 
@@ -30,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Direct kernel boot had not worked since 0.3.0. The manager OOMed holding the kernel and a 100 MB initramfs in memory (it now streams them through an on-disk cache, `--boot-artifacts-cache-dir`), and the host helper refused the default `hostPath`.
 - A machine's `HostReachable` condition stayed `False` after its host became reachable (#64).
 - Deleting a machine left its empty directory under `/run/caplv` (#65).
+- Deleting a machine whose VM was already shut off, for example by `virsh destroy` on the host, failed forever with "domain is not running".
+- A DHCP reservation left for a machine's address under another MAC (by a deleted VM whose host was lost, or one CAPLV made before MACs followed the address) made libvirt refuse the new machine's reservation, so its guest got no address. CAPLV now replaces it.
+- A host claimed by a LibvirtMachine that no longer exists was never handed back. The LibvirtHost controller now releases it and records a `StaleClaimReleased` warning; anything that machine left on the host is not cleaned up.
 - `setup-host.yaml` failed with more than one host (the SSH key was generated in parallel), and its final SSH check used the host's own address, unreachable from the control node for cloud instances.
 
 ### Security
