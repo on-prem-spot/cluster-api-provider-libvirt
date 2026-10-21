@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `LibvirtExternalControlPlane` reports the existing control plane of the cluster CAPLV runs on to Cluster API, which until now considered it never initialized. Machines' node health is now evaluated, MachineHealthChecks remediate, the Cluster reports `Available`, and Cluster API deletes a worker's Node when its Machine is deleted. It also maintains `<cluster>-kubeconfig`, with a 24-hour token for a ServiceAccount that can do only what Cluster API needs to Nodes (#61, ADR 0007). The default, `direct-boot`, `session-mode` and `ephemeral` flavors include it.
-- CAPLV reserves the static address of a machine on a libvirt network (`network.type: network`) for its MAC, so the guest also gets it by DHCP at first boot. OpenShift's ~2 KB worker pointer config therefore works, fetched from the initramfs, in place of the ~500 KB rendered config, which went stale and took minutes to read over fw_cfg (#62, #63).
+- On a libvirt network (`network.type: network`) without a DHCP range of its own, CAPLV reserves a machine's static address for its MAC, so the guest gets an address by DHCP at first boot; a network with a range already gives it one and is left alone, since every update makes libvirt rebuild the network's firewall rules. OpenShift's ~2 KB worker pointer config therefore works, fetched from the initramfs, in place of the ~500 KB rendered config, which went stale and took minutes to read over fw_cfg (#62, #63).
 - With direct kernel boot, an Ignition machine with a static address gets dracut `ip=`/`nameserver=` kernel arguments, so its initramfs has that address too (#62).
 - `hack/aws-openshift` builds a single-node OpenShift (platform none) test environment on AWS, with RHEL 9 and 10 libvirt hosts using nested virtualization, and runs the getting started guide against it.
 
@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A machine's `HostReachable` condition stayed `False` after its host became reachable (#64).
 - Deleting a machine left its empty directory under `/run/caplv` (#65).
 - `setup-host.yaml` failed with more than one host (the SSH key was generated in parallel), and its final SSH check used the host's own address, unreachable from the control node for cloud instances.
+
+### Security
+
+- The Go toolchain floor is now 1.26.10, for GO-2026-6809 (distrust compromised intermediate certificates in `crypto/x509`), which govulncheck reports as reachable through every HTTPS download the manager makes. The builder image is pinned to `golang:1.26.10`.
 
 ### Documentation
 
