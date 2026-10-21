@@ -24,7 +24,7 @@
 
 set -euo pipefail
 cd "$(dirname "$0")"
-# shellcheck source=env.sh
+# shellcheck source-path=SCRIPTDIR
 source ./env.sh
 
 mkdir -p "$HOSTS_DIR" "$STATE_DIR/ssh"

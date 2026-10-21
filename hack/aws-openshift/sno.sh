@@ -22,7 +22,7 @@
 
 set -euo pipefail
 cd "$(dirname "$0")"
-# shellcheck source=env.sh
+# shellcheck source-path=SCRIPTDIR
 source ./env.sh
 
 MIRROR=https://mirror.openshift.com/pub/openshift-v4/clients/ocp

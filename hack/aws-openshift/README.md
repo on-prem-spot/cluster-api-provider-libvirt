@@ -58,7 +58,7 @@ the kubeconfig and SSH keys, is kept in `~/.cache/caplv-aws/<cluster>`.
 | 1 | `./infra.sh` | ~10 min | Creates the VPC, the hosts and DNS. Prepares the hosts with `deploy/ansible/setup-host.yaml` and the routed networks. |
 | 2 | `./sno.sh` | ~50 min | Installs SNO with the newest OpenShift as a VM on the SNO host, using the agent-based installer. `--render-only` writes the install and agent configs for review. |
 | 3 | `./capi.sh` | ~5 min | Runs `clusterctl init --infrastructure libvirt` with the released CAPLV, plus the OpenShift SCC grant for upstream CAPI. |
-| 4 | `./workers.sh` | ~20 min | Creates one RHCOS worker per libvirt host, following `docs/getting-started.md`. `--delete` removes them. `HOST_KEY_TYPE=ecdsa` is needed with CAPLV v0.3.0. |
+| 4 | `./workers.sh` | ~20 min | Creates one RHCOS worker per libvirt host, following `docs/getting-started.md`. `--delete` removes them. Options: `BOOTSTRAP=pointer` uses OpenShift's worker pointer config instead of the full rendered one; `DIRECT_BOOT=1` boots with `bootArtifacts`; `HOST_KEY_TYPE=ecdsa` is needed with CAPLV v0.3.0. |
 | 5 | `./down.sh` | ~5 min | Removes everything, then lists anything still tagged `caplv-e2e`. |
 
 Every step can be run again. The environment costs about $2 an hour while

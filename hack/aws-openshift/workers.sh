@@ -14,21 +14,29 @@
 # limitations under the License.
 
 # workers.sh follows docs/getting-started.md on the OpenShift cluster: a
-# Cluster and LibvirtCluster for the cluster itself, a LibvirtHost per host
-# from hosts.sh, and one RHCOS worker VM per host, which joins the cluster.
+# Cluster, LibvirtCluster and LibvirtExternalControlPlane for the cluster
+# itself, a LibvirtHost per host from infra.sh, and one RHCOS worker VM per
+# host, which joins the cluster.
 # The LibvirtCluster distributes the RHCOS image matching the cluster's
 # release to the hosts. With --delete it deletes the workers again and checks
 # that CAPLV removed their Nodes.
 
 set -euo pipefail
 cd "$(dirname "$0")"
-# shellcheck source=env.sh
+# shellcheck source-path=SCRIPTDIR
 source ./env.sh
 
 NS=caplv-workers
 # Which of the hosts' SSH keys to pin. CAPLV v0.3.0 only verifies the key its
 # SSH client prefers, ECDSA on a stock sshd; later releases find any of them.
 HOST_KEY_TYPE=${HOST_KEY_TYPE:-ed25519}
+# The worker bootstrap data: "full", the whole config from the machine config
+# server, as the getting started guide does, or "pointer", the Machine API's
+# worker-user-data, which has Ignition fetch it from the initramfs.
+BOOTSTRAP=${BOOTSTRAP:-full}
+# DIRECT_BOOT=1 boots the workers with LibvirtCluster.spec.bootArtifacts:
+# the release's RHCOS kernel and initramfs, and Ignition from a virtio disk.
+DIRECT_BOOT=${DIRECT_BOOT:-0}
 
 if [[ ${1:-} == --delete ]]; then
   log "Deleting the worker Machines"
@@ -38,28 +46,43 @@ if [[ ${1:-} == --delete ]]; then
   exit 0
 fi
 
-rhcos=$(openshift-install coreos print-stream-json |
-  jq -c '.architectures.x86_64.artifacts.qemu | {release, url: .formats["qcow2.gz"].disk.location, sha256: .formats["qcow2.gz"].disk["uncompressed-sha256"]}')
+stream=$(openshift-install coreos print-stream-json)
+rhcos=$(jq -c '.architectures.x86_64.artifacts.qemu | {release, url: .formats["qcow2.gz"].disk.location, sha256: .formats["qcow2.gz"].disk["uncompressed-sha256"]}' <<<"$stream")
+pxe=$(jq -c '.architectures.x86_64.artifacts.metal.formats.pxe' <<<"$stream")
+boot_artifacts=""
+if [[ $DIRECT_BOOT == 1 ]]; then
+  boot_artifacts="  bootArtifacts:
+    hostPath: /var/lib/caplv/boot
+    kernelArgs: ignition.platform.id=metal ignition.config.url=oem:/dev/disk/by-id/virtio-ignition console=ttyS0
+    source:
+      type: HTTPS
+      https:
+        kernelURL: $(jq -r .kernel.location <<<"$pxe")
+        kernelSHA256: $(jq -r .kernel.sha256 <<<"$pxe")
+        initramfsURL: $(jq -r .initramfs.location <<<"$pxe")
+        initramfsSHA256: $(jq -r .initramfs.sha256 <<<"$pxe")"
+fi
 api_host="api.$CLUSTER_DOMAIN"
 
 oc create namespace "$NS" --dry-run=client -o yaml | oc apply -f -
-# CAPI reaches the cluster it adds nodes to through <cluster>-kubeconfig;
-# here that is the cluster itself. Without it, Machines never get a nodeRef.
-oc create secret generic "$CLUSTER_NAME-kubeconfig" -n "$NS" --from-file=value="$KUBECONFIG" \
-  --dry-run=client -o yaml | oc label --local -f - "cluster.x-k8s.io/cluster-name=$CLUSTER_NAME" -o yaml |
-  oc apply -f -
 oc create secret generic libvirt-host-ssh-key -n "$NS" \
   --from-file=ssh-privatekey="$HOSTS_DIR/caplv-key" --dry-run=client -o yaml | oc apply -f -
-# The full worker config from the machine config server, as the getting
-# started guide does. The Machine API's pointer config (worker-user-data)
-# would have ignition fetch it from the initramfs, which has no network:
-# CAPLV's static address applies only once ignition has run, and the routed
-# VM network has no DHCP. Pods may not reach the machine config server, so
-# fetch it through the SNO host, next to the cluster.
-read -r _ sno_host _ < <(head -1 "$HOSTS_DIR/hosts")
-ssh -n "${SSH_OPTS[@]}" "ec2-user@$sno_host" \
-  curl -sfk --max-time 60 -H "'Accept: application/vnd.coreos.ignition+json;version=3.2.0'" \
-  "https://api-int.$CLUSTER_DOMAIN:22623/config/worker" >"$STATE_DIR/worker.ign"
+if [[ $BOOTSTRAP == pointer ]]; then
+  # Ignition fetches the rest from the initramfs, so the initramfs needs the
+  # static address: CAPLV puts it on the kernel command line with direct
+  # boot. Without direct boot, on this routed network without DHCP, the
+  # fetch cannot work.
+  oc get secret -n openshift-machine-api worker-user-data -o jsonpath='{.data.userData}' |
+    base64 -d >"$STATE_DIR/worker.ign"
+else
+  # The full worker config from the machine config server, as the getting
+  # started guide does. Pods may not reach the machine config server, so
+  # fetch it through the SNO host, next to the cluster.
+  read -r _ sno_host _ < <(head -1 "$HOSTS_DIR/hosts")
+  ssh -n "${SSH_OPTS[@]}" "ec2-user@$sno_host" \
+    curl -sfk --max-time 60 -H "'Accept: application/vnd.coreos.ignition+json;version=3.2.0'" \
+    "https://api-int.$CLUSTER_DOMAIN:22623/config/worker" >"$STATE_DIR/worker.ign"
+fi
 oc create secret generic worker-bootstrap -n "$NS" \
   --from-file=value="$STATE_DIR/worker.ign" \
   --from-literal=format=ignition --dry-run=client -o yaml | oc apply --server-side --force-conflicts -f -
@@ -79,6 +102,19 @@ spec:
     apiGroup: infrastructure.cluster.x-k8s.io
     kind: LibvirtCluster
     name: $CLUSTER_NAME
+  # OpenShift's own control plane. CAPLV reports it to CAPI and maintains
+  # the $CLUSTER_NAME-kubeconfig Secret CAPI reaches the cluster with.
+  controlPlaneRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: LibvirtExternalControlPlane
+    name: $CLUSTER_NAME
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: LibvirtExternalControlPlane
+metadata:
+  name: $CLUSTER_NAME
+  namespace: $NS
+spec: {}
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: LibvirtCluster
@@ -97,6 +133,7 @@ spec:
       https:
         url: $(jq -r .url <<<"$rhcos")
         sha256: $(jq -r .sha256 <<<"$rhcos")
+$boot_artifacts
 EOF
   while read -r name _ private_ip subnet; do
     fingerprint=$(awk -v n="$name" -v t="$HOST_KEY_TYPE" '$1==n && $2==t {print $3}' "$HOSTS_DIR/fingerprints")
