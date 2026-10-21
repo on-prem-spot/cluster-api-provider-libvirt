@@ -196,7 +196,8 @@ func (r *LibvirtClusterReconciler) failureDomains(ctx context.Context, cluster *
 	var domains []infrav1.FailureDomain
 	for i := range hosts.Items {
 		host := &hosts.Items[i]
-		if !host.DeletionTimestamp.IsZero() {
+		// Hosts being deleted or cordoned take no new machines.
+		if !host.DeletionTimestamp.IsZero() || host.Spec.Unschedulable {
 			continue
 		}
 		domains = append(domains, infrav1.FailureDomain{
@@ -235,14 +236,22 @@ func (r *LibvirtClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(
 			util.ClusterToInfrastructureMapFunc(context.Background(), infrav1.GroupVersion.WithKind("LibvirtCluster"), mgr.GetClient(), &infrav1.LibvirtCluster{}),
 		), builder.WithPredicates(predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))).
-		// Hosts are failure domains; creation and deletion change the set.
+		// Hosts are failure domains; creating, deleting and cordoning one
+		// changes the set.
 		Watches(&infrav1.LibvirtHost{}, handler.EnqueueRequestsFromMapFunc(r.hostToLibvirtClusters),
 			builder.WithPredicates(
 				predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue),
 				predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
-					return e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero()
+					return e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero() ||
+						hostUnschedulable(e.ObjectOld) != hostUnschedulable(e.ObjectNew)
 				}},
 			)).
 		Named("libvirtcluster").
 		Complete(r)
+}
+
+// hostUnschedulable reports whether o is a cordoned LibvirtHost.
+func hostUnschedulable(o client.Object) bool {
+	host, ok := o.(*infrav1.LibvirtHost)
+	return ok && host.Spec.Unschedulable
 }

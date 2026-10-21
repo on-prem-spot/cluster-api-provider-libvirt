@@ -384,7 +384,7 @@ func (c *VirshClient) StartDomain(ctx context.Context, name string) error {
 // DestroyDomain forcibly stops a running domain.
 func (c *VirshClient) DestroyDomain(ctx context.Context, name string) error {
 	_, err := c.runVirsh(ctx, "destroy", name)
-	if IsNotFound(err) {
+	if IsNotFound(err) || isDomainNotRunning(err) {
 		return nil // already off or gone
 	}
 	return err
@@ -718,18 +718,19 @@ func (c *VirshClient) DeleteRemoteFile(ctx context.Context, path string) error {
 // hostname name, if the network would give the guest no address of its own:
 // it has no DHCP range. Such a network gets a static-only range from
 // libvirt, so it still hands out no address it was not told to. A network
-// with a range is left alone (see dhcpReservationAction).
+// with a range is left alone, and a stale reservation of the address is
+// replaced (see dhcpReservationPlan).
 func (c *VirshClient) ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error {
 	networkXML, err := c.runVirsh(ctx, "net-dumpxml", network)
 	if err != nil {
 		return err
 	}
-	action, err := dhcpReservationAction(networkXML, mac, ip)
-	if err != nil || action == dhcpLeaveAlone {
+	reserve, remove, err := dhcpReservationPlan(networkXML, mac, ip)
+	if err != nil || !reserve {
 		return err
 	}
-	if action == dhcpReplace {
-		if err := c.deleteDHCPHost(ctx, network, mac); err != nil {
+	for _, stale := range remove {
+		if err := c.deleteDHCPHost(ctx, network, stale); err != nil {
 			return err
 		}
 	}

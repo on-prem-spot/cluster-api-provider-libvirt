@@ -225,6 +225,7 @@ func main() {
 		SSHClientFactory:     sshClientFactory,
 		LibvirtClientFactory: libvirtClientFactory,
 		Recorder:             mgr.GetEventRecorder("libvirthost-controller"),
+		APIReader:            mgr.GetAPIReader(),
 		WatchFilterValue:     watchFilterValue,
 		IdentityNamespace:    identityNamespace,
 	}).SetupWithManager(mgr); err != nil {

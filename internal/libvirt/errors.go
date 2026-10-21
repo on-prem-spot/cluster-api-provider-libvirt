@@ -57,6 +57,13 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+// isDomainNotRunning reports whether err is libvirt refusing an operation
+// because the domain is shut off, e.g. destroying a VM that something else
+// already stopped (virsh destroy run on the host, or a guest that crashed).
+func isDomainNotRunning(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "domain is not running")
+}
+
 // IsTerminal returns true if the error is terminal and should not be retried.
 func IsTerminal(err error) bool {
 	var le *LibvirtError

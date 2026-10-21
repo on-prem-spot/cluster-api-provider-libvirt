@@ -29,7 +29,10 @@ import (
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
 
-const claimNamespace = "team-a"
+const (
+	claimNamespace = "team-a"
+	hostB          = "host-b"
+)
 
 func claimHostFixture(name string, ready bool, labels map[string]string) *infrav1.LibvirtHost {
 	return &infrav1.LibvirtHost{
@@ -70,7 +73,7 @@ func TestResolveHost_ClaimsFirstEligibleHostByName(t *testing.T) {
 	worker := map[string]string{"role": "worker"}
 	claimed := claimHostFixture("host-a", true, worker)
 	claimed.Spec.ConsumerRef = &infrav1.LibvirtMachineReference{Name: "other"}
-	small := claimHostFixture("host-b", true, worker)
+	small := claimHostFixture(hostB, true, worker)
 	small.Status.Capacity.AvailableMemoryMB = 1024
 	r, c := claimReconciler(t,
 		claimed,
@@ -105,11 +108,11 @@ func TestResolveHost_ClaimsFirstEligibleHostByName(t *testing.T) {
 // a host name; only that host may be claimed.
 func TestResolveHost_HonoursFailureDomain(t *testing.T) {
 	worker := map[string]string{"role": "worker"}
-	r, _ := claimReconciler(t, claimHostFixture("host-a", true, worker), claimHostFixture("host-b", true, worker))
-	machine := &clusterv1.Machine{Spec: clusterv1.MachineSpec{FailureDomain: "host-b"}}
+	r, _ := claimReconciler(t, claimHostFixture("host-a", true, worker), claimHostFixture(hostB, true, worker))
+	machine := &clusterv1.Machine{Spec: clusterv1.MachineSpec{FailureDomain: hostB}}
 
 	host, err := r.resolveHost(context.Background(), selectorMachine("m1"), machine)
-	if err != nil || host == nil || host.Name != "host-b" {
+	if err != nil || host == nil || host.Name != hostB {
 		t.Fatalf("got host %v, err %v; want host-b", host, err)
 	}
 }
@@ -134,12 +137,12 @@ func TestResolveHost_NoHostAvailable(t *testing.T) {
 // does not carry status) finds its host again rather than claiming another.
 func TestResolveHost_RebuildsFromClaim(t *testing.T) {
 	worker := map[string]string{"role": "worker"}
-	mine := claimHostFixture("host-b", true, worker)
+	mine := claimHostFixture(hostB, true, worker)
 	mine.Spec.ConsumerRef = &infrav1.LibvirtMachineReference{Name: "m1"}
 	r, c := claimReconciler(t, claimHostFixture("host-a", true, worker), mine)
 
 	host, err := r.resolveHost(context.Background(), selectorMachine("m1"), &clusterv1.Machine{})
-	if err != nil || host == nil || host.Name != "host-b" {
+	if err != nil || host == nil || host.Name != hostB {
 		t.Fatalf("got host %v, err %v; want host-b", host, err)
 	}
 	if got := hostConsumer(t, c, "host-a"); got != "" {

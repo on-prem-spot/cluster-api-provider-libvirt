@@ -71,12 +71,16 @@ type LibvirtHostReconciler struct {
 	// IdentityNamespace is the controller's namespace, where the Secrets of
 	// LibvirtClusterIdentities live.
 	IdentityNamespace string
+	// APIReader reads LibvirtMachines uncached when deciding whether a claim
+	// is stale, so a machine created a moment ago is never missed. Without
+	// it the cached client is used.
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirthosts/finalizers,verbs=update
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines,verbs=list
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtmachines,verbs=get;list
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",namespace=system,resources=secrets,verbs=patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=libvirtclusteridentities,verbs=get;list;watch
@@ -116,6 +120,10 @@ func (r *LibvirtHostReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Always update LastChecked.
 	now := metav1.Now()
 	host.Status.LastChecked = &now
+
+	if err := r.releaseStaleClaim(ctx, host); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// Run the health check (SSH + libvirt + capacity discovery).
 	r.performHealthCheck(ctx, host)
@@ -285,6 +293,39 @@ func (r *LibvirtHostReconciler) setReachable(
 		eventType = corev1.EventTypeNormal
 	}
 	recordEvent(r.Recorder, host, eventType, reason, ActionHealthCheck, "%s", message)
+}
+
+// releaseStaleClaim clears the host's consumerRef when the LibvirtMachine it
+// names no longer exists. A machine releases its host only after cleaning
+// up, so this happens only when it went away some other way (its finalizer
+// removed by hand, or a deletion that found no host to clean up), and the
+// host would otherwise be held forever. Whatever that machine left on the
+// hypervisor stays there.
+//
+// Clearing it in the deferred patch is safe without a resourceVersion check:
+// no other machine can claim the host while the consumerRef is set.
+func (r *LibvirtHostReconciler) releaseStaleClaim(ctx context.Context, host *infrav1.LibvirtHost) error {
+	if host.Spec.ConsumerRef == nil {
+		return nil
+	}
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	name := host.Spec.ConsumerRef.Name
+	err := reader.Get(ctx, types.NamespacedName{Namespace: host.Namespace, Name: name}, &infrav1.LibvirtMachine{})
+	switch {
+	case err == nil:
+		return nil
+	case !apierrors.IsNotFound(err):
+		return fmt.Errorf("failed to get LibvirtMachine %s: %w", name, err)
+	}
+	host.Spec.ConsumerRef = nil
+	logf.FromContext(ctx).Info("Released LibvirtHost claimed by a missing LibvirtMachine", "libvirtMachine", name)
+	recordEvent(r.Recorder, host, corev1.EventTypeWarning, EventStaleClaimReleased, ActionHealthCheck,
+		"Released the claim of LibvirtMachine %s, which no longer exists; anything it left on the host was not cleaned up",
+		name)
+	return nil
 }
 
 // hasReferencingMachines returns true if a LibvirtMachine claims this host

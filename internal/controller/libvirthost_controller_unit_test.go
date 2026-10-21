@@ -371,3 +371,35 @@ func TestHostReconcile_SystemHost_SkipsSessionCheck(t *testing.T) {
 		t.Error("expected Ready=true for a healthy system-mode host")
 	}
 }
+
+func TestHostReconcile_ReleasesClaimOfMissingMachine(t *testing.T) {
+	s := testScheme(t)
+	claimed := func(name string) *infrav1.LibvirtHost {
+		return &infrav1.LibvirtHost{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: infrav1.LibvirtHostSpec{
+				URI:         "qemu+ssh://root@host/system",
+				ConsumerRef: &infrav1.LibvirtMachineReference{Name: "worker-" + name},
+			},
+		}
+	}
+	gone, held := claimed("gone"), claimed("held")
+	machine := &infrav1.LibvirtMachine{ObjectMeta: metav1.ObjectMeta{Name: "worker-held", Namespace: "default"}}
+	k8sClient := fake.NewClientBuilder().WithScheme(s).WithObjects(gone, held, machine).
+		WithStatusSubresource(gone, held).Build()
+	r := &LibvirtHostReconciler{Client: k8sClient, Scheme: s, APIReader: k8sClient}
+
+	for host, want := range map[string]string{"gone": "", "held": "worker-held"} {
+		key := types.NamespacedName{Name: host, Namespace: "default"}
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("reconcile %s: %v", host, err)
+		}
+		updated := &infrav1.LibvirtHost{}
+		if err := k8sClient.Get(context.Background(), key, updated); err != nil {
+			t.Fatalf("get host %s: %v", host, err)
+		}
+		if got := consumerName(updated); got != want {
+			t.Errorf("host %s: consumerRef = %q, want %q", host, got, want)
+		}
+	}
+}

@@ -41,6 +41,7 @@ const (
 	EventProvisionFailed       = "ProvisionFailed"
 	EventDeleteFailed          = "DeleteFailed"
 	EventDHCPReservationFailed = "DHCPReservationFailed"
+	EventStaleClaimReleased    = "StaleClaimReleased"
 
 	// Cluster readiness.
 	EventInfrastructureReady = "InfrastructureReady"

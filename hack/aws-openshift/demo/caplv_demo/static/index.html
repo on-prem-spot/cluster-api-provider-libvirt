@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Standby Capacity Demo</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">◆</span>
+    <div>
+      <h1>Idle standbys, put to work</h1>
+      <p>RHEL High Availability · PostgreSQL + pgvector · OpenShift · CAPLV · Kueue</p>
+    </div>
+  </div>
+  <nav id="chapters"></nav>
+</header>
+
+<main>
+  <section id="story">
+    <article id="chapter"></article>
+    <footer class="pager">
+      <button id="prev" class="ghost">← Back</button>
+      <span id="where"></span>
+      <button id="next">Next →</button>
+    </footer>
+  </section>
+
+  <aside id="live">
+    <div class="panel">
+      <h2>The three RHEL HA servers <span class="hint">live</span></h2>
+      <div id="hosts" class="hosts"></div>
+      <div id="openshift" class="openshift"></div>
+    </div>
+    <div class="panel">
+      <h2>Database writes <span class="hint">a row through the virtual IP every 0.5s</span></h2>
+      <div id="probe"></div>
+    </div>
+    <div class="panel">
+      <h2>Embedding run <span class="hint">Kueue · pgvector</span></h2>
+      <div id="progress"></div>
+    </div>
+    <div class="panel grow">
+      <h2>Timeline <span class="hint" id="timeline-hint">what each layer did</span></h2>
+      <ol id="timeline"></ol>
+    </div>
+  </aside>
+</main>
+
+<div id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

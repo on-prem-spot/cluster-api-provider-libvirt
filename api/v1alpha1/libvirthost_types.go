@@ -148,6 +148,16 @@ type LibvirtHostSpec struct {
 	// +optional
 	MachineNetwork *MachineNetworkSpec `json:"machineNetwork,omitempty"`
 
+	// unschedulable cordons the host, as a Node's spec.unschedulable does:
+	// CAPLV gives it to no machine that does not already hold it, offers it
+	// to the control plane as no failure domain, and creates or starts no VM
+	// on it, including a VM that stopped. A VM already running there keeps
+	// running. Set it while the host's capacity belongs to something else,
+	// for example while it runs a failed-over database; a VM stopped then
+	// (virsh destroy) stays stopped until the host is uncordoned.
+	// +optional
+	Unschedulable bool `json:"unschedulable,omitempty"`
+
 	// consumerRef names the LibvirtMachine using this host. CAPLV sets it
 	// when a machine claims the host and clears it once the machine's VM and
 	// artifacts are deleted; it is what keeps a host to one VM. Clearing it
@@ -219,6 +229,7 @@ type LibvirtHostStatus struct {
 // +kubebuilder:resource:categories=cluster-api,shortName=libvirth
 // +kubebuilder:printcolumn:name="URI",type="string",JSONPath=".spec.uri"
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
+// +kubebuilder:printcolumn:name="Cordoned",type="boolean",JSONPath=".spec.unschedulable"
 // +kubebuilder:printcolumn:name="Consumer",type="string",JSONPath=".spec.consumerRef.name"
 // +kubebuilder:printcolumn:name="vCPUs",type="integer",JSONPath=".status.capacity.availableVCPUs",priority=1
 // +kubebuilder:printcolumn:name="MemMB",type="integer",JSONPath=".status.capacity.availableMemoryMB",priority=1

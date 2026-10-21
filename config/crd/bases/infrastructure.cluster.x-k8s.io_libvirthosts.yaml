@@ -25,6 +25,9 @@ spec:
     - jsonPath: .status.ready
       name: Ready
       type: boolean
+    - jsonPath: .spec.unschedulable
+      name: Cordoned
+      type: boolean
     - jsonPath: .spec.consumerRef.name
       name: Consumer
       type: string
@@ -211,6 +214,16 @@ spec:
                 required:
                 - name
                 type: object
+              unschedulable:
+                description: |-
+                  unschedulable cordons the host, as a Node's spec.unschedulable does:
+                  CAPLV gives it to no machine that does not already hold it, offers it
+                  to the control plane as no failure domain, and creates or starts no VM
+                  on it, including a VM that stopped. A VM already running there keeps
+                  running. Set it while the host's capacity belongs to something else,
+                  for example while it runs a failed-over database; a VM stopped then
+                  (virsh destroy) stays stopped until the host is uncordoned.
+                type: boolean
               uri:
                 description: |-
                   uri is the libvirt connection URI (e.g. qemu+ssh://user@host/system).
