@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Upgrade notes
+
+- **Re-run `deploy/ansible/setup-host.yaml` on every host.** The `caplv-hostctl` helper gains an `rmdir` action and may now also manage files under `/var/lib/caplv`, where direct kernel boot keeps its kernels.
+- **`bootArtifacts.hostPath` must be `/var/lib/caplv` or a directory under it**, the only persistent directory the helper writes to. Other paths have been refused on the host since 0.3.0 and are now rejected by the webhook.
+- **Add a `LibvirtExternalControlPlane`** to each Cluster whose control plane is the cluster CAPLV runs on (the OpenShift setup in the getting started guide), and name it in `spec.controlPlaneRef`. It replaces any hand-made `<cluster>-kubeconfig` Secret, though one you created yourself is left alone and keeps being used.
+
+### Added
+
+- `LibvirtExternalControlPlane` reports the existing control plane of the cluster CAPLV runs on to Cluster API, which until now considered it never initialized. Machines' node health is now evaluated, MachineHealthChecks remediate, the Cluster reports `Available`, and Cluster API deletes a worker's Node when its Machine is deleted. It also maintains `<cluster>-kubeconfig`, with a 24-hour token for a ServiceAccount that can do only what Cluster API needs to Nodes (#61, ADR 0007). The default, `direct-boot`, `session-mode` and `ephemeral` flavors include it.
+- CAPLV reserves the static address of a machine on a libvirt network (`network.type: network`) for its MAC, so the guest also gets it by DHCP at first boot. OpenShift's ~2 KB worker pointer config therefore works, fetched from the initramfs, in place of the ~500 KB rendered config, which went stale and took minutes to read over fw_cfg (#62, #63).
+- With direct kernel boot, an Ignition machine with a static address gets dracut `ip=`/`nameserver=` kernel arguments, so its initramfs has that address too (#62).
+- `hack/aws-openshift` builds a single-node OpenShift (platform none) test environment on AWS, with RHEL 9 and 10 libvirt hosts using nested virtualization, and runs the getting started guide against it.
+
+### Fixed
+
+- A `LibvirtHost` pinned to its ed25519 host key, as the setup playbook and docs say, failed with a host key mismatch on any stock sshd: x/crypto prefers ECDSA, so the host showed a different key. CAPLV now tries each key type until the pinned one appears.
+- OpenShift workers registered without a provider ID: CAPLV's kubelet drop-in set `KUBELET_PROVIDERID_FLAG`, which nothing reads, instead of `KUBELET_PROVIDERID`. CAPI never matched their Nodes to their Machines.
+- Direct kernel boot had not worked since 0.3.0. The manager OOMed holding the kernel and a 100 MB initramfs in memory (it now streams them through an on-disk cache, `--boot-artifacts-cache-dir`), and the host helper refused the default `hostPath`.
+- A machine's `HostReachable` condition stayed `False` after its host became reachable (#64).
+- Deleting a machine left its empty directory under `/run/caplv` (#65).
+- `setup-host.yaml` failed with more than one host (the SSH key was generated in parallel), and its final SSH check used the host's own address, unreachable from the control node for cloud instances.
+
+### Documentation
+
+- The getting started guide covers registering CAPLV with `clusterctl`, granting upstream CAPI the `nonroot-v2` SCC on OpenShift, the external control plane, and choosing between the pointer and rendered worker configs.
+
+---
+
 ## [0.3.0] - 2026-10-20
 
 ### Upgrade notes
