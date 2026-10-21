@@ -158,7 +158,12 @@ def reset_run():
     with db.connect() as conn, conn.cursor() as cur:
         cur.execute("TRUNCATE chunks")
         conn.commit()
+    # A fresh start for the next telling: no kill, and a timeline from here.
     collector.kill = None
+    if not recovery["running"]:
+        recovery["steps"] = []
+    with collector.timeline.lock:
+        collector.timeline.events.clear()
     collector.timeline.add("run", "Reset: deleted the embedding run and emptied the vector table", "kueue")
     return {"ok": True}
 

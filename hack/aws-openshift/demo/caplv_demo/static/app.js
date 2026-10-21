@@ -303,7 +303,7 @@ const chapters = [
       </ul>
       <div class="actions">
         <button id="start" class="blue">Start the embedding run</button>
-        <button id="reset" class="ghost">Reset (delete the run, empty the table)</button>
+        <button id="reset" class="ghost">Reset (delete the run, empty the table, clear the timeline)</button>
         <span id="c4-status" class="muted"></span>
       </div>
       <div id="c4-facts"></div>
@@ -316,7 +316,7 @@ const chapters = [
       ])}`,
     bind() {
       $("#start").onclick = () => post("/api/run", "Embedding run submitted to Kueue");
-      $("#reset").onclick = () => confirm("Delete the run and empty the vector table?") && post("/api/reset", "Reset");
+      $("#reset").onclick = () => confirm("Delete the run, empty the vector table and clear the timeline?") && post("/api/reset", "Reset");
     },
     update() {
       const k = S.kube || {};
