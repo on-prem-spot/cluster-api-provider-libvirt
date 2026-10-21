@@ -1,0 +1,189 @@
+#!/bin/sh
+# Copyright 2026 Anthony Green.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ocf:caplv:evict — takes a libvirt host back from CAPLV, at once.
+#
+# Pacemaker runs it where the PostgreSQL primary is about to be promoted,
+# before the promotion (see pgha.sh for the constraints). Starting it:
+#
+#   1. hard-kills every VM on the host (virsh destroy), freeing its CPUs and
+#      memory within seconds;
+#   2. cordons the host's LibvirtHost (spec.unschedulable), so CAPLV neither
+#      starts those VMs again nor places new ones here;
+#   3. kills again, in case CAPLV started one in between;
+#   4. deletes, in the background, the Machines whose VMs ran here, so a
+#      MachineDeployment replaces them on another host.
+#
+# Stopping it, when the primary moves away, uncordons the host. Neither ever
+# fails: the database must not wait for the Kubernetes API, and a failed stop
+# would get the node fenced. A host left cordoned is the safe side.
+
+: "${OCF_FUNCTIONS_DIR:=${OCF_ROOT}/lib/heartbeat}"
+# shellcheck source=/dev/null
+. "${OCF_FUNCTIONS_DIR}/ocf-shellfuncs"
+
+: "${OCF_RESKEY_kubeconfig:=/etc/caplv/evict.kubeconfig}"
+: "${OCF_RESKEY_namespace:=caplv-workers}"
+: "${OCF_RESKEY_libvirt_uri:=qemu:///system}"
+: "${OCF_RESKEY_api_timeout:=5}"
+# The LibvirtHost is named after the Pacemaker node unless told otherwise.
+: "${OCF_RESKEY_host:=$(crm_node -n)}"
+
+STATE="${HA_RSCTMP}/caplv-evict-${OCF_RESOURCE_INSTANCE}.active"
+
+meta_data() {
+	cat <<END
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="evict" version="1.0">
+<version>1.0</version>
+<longdesc lang="en">
+Takes a libvirt host back from CAPLV: hard-kills its VMs, cordons its
+LibvirtHost and deletes their Machines, so the host's capacity is free for
+the resource promoted after it. Stopping it uncordons the host.
+</longdesc>
+<shortdesc lang="en">Evict CAPLV VMs from this host</shortdesc>
+<parameters>
+<parameter name="host" unique="0" required="0">
+<longdesc lang="en">The LibvirtHost's name. Defaults to the Pacemaker node name.</longdesc>
+<shortdesc lang="en">LibvirtHost name</shortdesc>
+<content type="string" default=""/>
+</parameter>
+<parameter name="namespace" unique="0" required="0">
+<longdesc lang="en">The namespace of the LibvirtHost and its machines.</longdesc>
+<shortdesc lang="en">Namespace</shortdesc>
+<content type="string" default="caplv-workers"/>
+</parameter>
+<parameter name="kubeconfig" unique="0" required="0">
+<longdesc lang="en">A kubeconfig allowed to patch the LibvirtHost and delete Machines.</longdesc>
+<shortdesc lang="en">Kubeconfig</shortdesc>
+<content type="string" default="/etc/caplv/evict.kubeconfig"/>
+</parameter>
+<parameter name="libvirt_uri" unique="0" required="0">
+<longdesc lang="en">The libvirt daemon CAPLV's VMs run under.</longdesc>
+<shortdesc lang="en">libvirt URI</shortdesc>
+<content type="string" default="qemu:///system"/>
+</parameter>
+<parameter name="api_timeout" unique="0" required="0">
+<longdesc lang="en">Seconds to wait for each Kubernetes API call.</longdesc>
+<shortdesc lang="en">API timeout</shortdesc>
+<content type="integer" default="5"/>
+</parameter>
+</parameters>
+<actions>
+<action name="start" timeout="60s"/>
+<action name="stop" timeout="60s"/>
+<action name="monitor" timeout="20s" interval="30s"/>
+<action name="validate-all" timeout="20s"/>
+<action name="meta-data" timeout="5s"/>
+</actions>
+</resource-agent>
+END
+}
+
+kube() {
+	timeout "$((OCF_RESKEY_api_timeout + 2))" oc --kubeconfig "$OCF_RESKEY_kubeconfig" \
+		--request-timeout="${OCF_RESKEY_api_timeout}s" -n "$OCF_RESKEY_namespace" "$@"
+}
+
+kill_vms() {
+	for domain in $(virsh -c "$OCF_RESKEY_libvirt_uri" list --name); do
+		if virsh -c "$OCF_RESKEY_libvirt_uri" destroy "$domain" >/dev/null 2>&1; then
+			ocf_log info "Destroyed VM $domain"
+		fi
+	done
+}
+
+set_cordon() {
+	kube patch libvirthost "$OCF_RESKEY_host" --type merge \
+		-p "{\"spec\":{\"unschedulable\":$1}}" >/dev/null 2>&1
+}
+
+# delete_machines deletes the Machines owning the LibvirtMachines that ran on
+# this host, without waiting for them to go.
+delete_machines() {
+	jsonpath="{range .items[?(@.status.hostRef.name==\"$OCF_RESKEY_host\")]}"
+	jsonpath="$jsonpath{.metadata.ownerReferences[?(@.kind==\"Machine\")].name}{\"\\n\"}{end}"
+	for machine in $(kube get libvirtmachines -o jsonpath="$jsonpath" 2>/dev/null); do
+		kube delete machines.cluster.x-k8s.io "$machine" --wait=false >/dev/null 2>&1 &&
+			ocf_log info "Deleted Machine $machine"
+	done
+}
+
+evict_start() {
+	kill_vms
+	if set_cordon true; then
+		ocf_log info "Cordoned LibvirtHost $OCF_RESKEY_host"
+	else
+		ocf_log warn "Could not cordon LibvirtHost $OCF_RESKEY_host; CAPLV may start its VMs again"
+	fi
+	kill_vms
+	touch "$STATE"
+	(delete_machines) </dev/null >/dev/null 2>&1 &
+	return "$OCF_SUCCESS"
+}
+
+evict_stop() {
+	rm -f "$STATE"
+	if set_cordon false; then
+		ocf_log info "Uncordoned LibvirtHost $OCF_RESKEY_host"
+	else
+		ocf_log warn "Could not uncordon LibvirtHost $OCF_RESKEY_host; uncordon it by hand"
+	fi
+	return "$OCF_SUCCESS"
+}
+
+evict_monitor() {
+	if [ -f "$STATE" ]; then
+		return "$OCF_SUCCESS"
+	fi
+	return "$OCF_NOT_RUNNING"
+}
+
+evict_validate() {
+	for tool in oc virsh timeout; do
+		command -v "$tool" >/dev/null 2>&1 || {
+			ocf_exit_reason "$tool is not installed"
+			return "$OCF_ERR_INSTALLED"
+		}
+	done
+	if [ ! -r "$OCF_RESKEY_kubeconfig" ]; then
+		ocf_exit_reason "Cannot read $OCF_RESKEY_kubeconfig"
+		return "$OCF_ERR_CONFIGURED"
+	fi
+	return "$OCF_SUCCESS"
+}
+
+case "$__OCF_ACTION" in
+meta-data)
+	meta_data
+	exit "$OCF_SUCCESS"
+	;;
+usage | help)
+	echo "usage: $0 {start|stop|monitor|validate-all|meta-data}"
+	exit "$OCF_SUCCESS"
+	;;
+esac
+
+# Only start validates: stop must succeed whatever happens, and monitor only
+# reads the state file.
+case "$__OCF_ACTION" in
+start) evict_validate && evict_start ;;
+stop) evict_stop ;;
+monitor) evict_monitor ;;
+validate-all) evict_validate ;;
+*) exit "$OCF_ERR_UNIMPLEMENTED" ;;
+esac
+exit $?

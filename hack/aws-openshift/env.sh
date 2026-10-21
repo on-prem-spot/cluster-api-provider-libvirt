@@ -32,6 +32,9 @@ CAPLV_VERSION=${CAPLV_VERSION:-latest}
 SNO_HOST_INSTANCE_TYPE=${SNO_HOST_INSTANCE_TYPE:-m8i.4xlarge}
 HOST_INSTANCE_TYPE=${HOST_INSTANCE_TYPE:-m8i.2xlarge}
 HOST_RHEL_MAJORS=${HOST_RHEL_MAJORS:-"10 9"}
+# The libvirt hosts' AMI family: RHEL, or RHEL_HA for the pay-as-you-go
+# images with the High Availability Add-On (Pacemaker), which pgha.sh needs.
+HOST_IMAGE_FAMILY=${HOST_IMAGE_FAMILY:-RHEL}
 # The SNO VM's size, within the SNO host.
 SNO_VCPUS=${SNO_VCPUS:-12}
 SNO_MEMORY_MB=${SNO_MEMORY_MB:-49152}

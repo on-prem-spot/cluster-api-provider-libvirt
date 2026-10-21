@@ -93,26 +93,28 @@ aws ec2 describe-key-pairs --key-names "$KEY_NAME" >/dev/null 2>&1 ||
   aws ec2 import-key-pair --key-name "$KEY_NAME" --public-key-material \
     "fileb://$STATE_DIR/ssh/id_ed25519.pub" --tag-specifications "$(tags key-pair "$KEY_NAME")" >/dev/null
 
+# newest_rhel_ami MAJOR [FAMILY] prints the newest pay-as-you-go AMI of a
+# RHEL major release: FAMILY RHEL (the default) or RHEL_HA.
 newest_rhel_ami() {
-  local name
+  local name family=${2:-RHEL}
   name=$(aws ec2 describe-images --owners 309956199498 \
-    --filters "Name=name,Values=RHEL-$1.*_HVM-*-x86_64-*-Hourly2-GP3" Name=state,Values=available \
+    --filters "Name=name,Values=$family-$1.*_HVM-*-x86_64-*-Hourly2-GP3" Name=state,Values=available \
     --query 'Images[].Name' --output text | tr '\t' '\n' | sort -V | tail -1)
   aws ec2 describe-images --owners 309956199498 --filters "Name=name,Values=$name" \
     --query 'Images[0].ImageId' --output text
 }
 
-# create_host NAME INDEX TYPE RHEL_MAJOR DISK_GB creates (or finds) a host
-# and routes its VM subnet to it, and appends it to the hosts file.
+# create_host NAME INDEX TYPE RHEL_MAJOR DISK_GB [FAMILY] creates (or finds) a
+# host and routes its VM subnet to it, and appends it to the hosts file.
 create_host() {
-  local name=$1 n=$2 type=$3 major=$4 disk=$5 instance eni private_ip public_ip
+  local name=$1 n=$2 type=$3 major=$4 disk=$5 family=${6:-RHEL} instance eni private_ip public_ip
   instance=$(aws ec2 describe-instances --filters "Name=tag:$TAG_KEY,Values=$CLUSTER_NAME" \
     "Name=tag:Name,Values=$name" "Name=instance-state-name,Values=pending,running" \
     --query 'Reservations[0].Instances[0].InstanceId' --output text)
   if [[ $instance == None ]]; then
     local ami
-    ami=$(newest_rhel_ami "$major")
-    log "Creating $name ($type, RHEL $major, $ami)"
+    ami=$(newest_rhel_ami "$major" "$family")
+    log "Creating $name ($type, $family $major, $ami)"
     instance=$(aws ec2 run-instances --image-id "$ami" --instance-type "$type" \
       --cpu-options NestedVirtualization=enabled --key-name "$KEY_NAME" \
       --network-interfaces "DeviceIndex=0,SubnetId=$SUBNET_ID,Groups=$SG_ID,AssociatePublicIpAddress=true" \
@@ -141,7 +143,7 @@ create_host "$CLUSTER_NAME-sno-host" 0 "$SNO_HOST_INSTANCE_TYPE" 10 250
 n=0
 for major in $HOST_RHEL_MAJORS; do
   n=$((n + 1))
-  create_host "$CLUSTER_NAME-libvirt-$n" "$n" "$HOST_INSTANCE_TYPE" "$major" 150
+  create_host "$CLUSTER_NAME-libvirt-$n" "$n" "$HOST_INSTANCE_TYPE" "$major" 150 "$HOST_IMAGE_FAMILY"
 done
 read -r _ SNO_HOST_PUBLIC_IP _ < <(head -1 "$HOSTS_DIR/hosts")
 

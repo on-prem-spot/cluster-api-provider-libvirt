@@ -15,7 +15,8 @@
 
 # down.sh removes everything infra.sh created, which takes the SNO VM and
 # the CAPLV VMs with it: the instances, the DNS records and private zone,
-# and the VPC. It then lists anything still carrying the caplv-e2e tag.
+# and the VPC; and the IAM role and user pgha.sh and demo.sh created. It
+# then lists anything still carrying the caplv-e2e tag.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -35,6 +36,25 @@ if [[ -n $instances ]]; then
   aws ec2 terminate-instances --instance-ids $instances >/dev/null
   # shellcheck disable=SC2086
   aws ec2 wait instance-terminated --instance-ids $instances
+fi
+
+# The PostgreSQL HA demo's fencing role (pgha.sh) and app user (demo.sh).
+ROLE=$CLUSTER_NAME-pacemaker
+if aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
+  log "Deleting IAM role $ROLE"
+  aws iam remove-role-from-instance-profile --instance-profile-name "$ROLE" --role-name "$ROLE" 2>/dev/null || true
+  aws iam delete-instance-profile --instance-profile-name "$ROLE" 2>/dev/null || true
+  aws iam delete-role-policy --role-name "$ROLE" --policy-name pacemaker 2>/dev/null || true
+  aws iam delete-role --role-name "$ROLE"
+fi
+APP_USER=$CLUSTER_NAME-demo-app
+if aws iam get-user --user-name "$APP_USER" >/dev/null 2>&1; then
+  log "Deleting IAM user $APP_USER"
+  for key in $(aws iam list-access-keys --user-name "$APP_USER" --query 'AccessKeyMetadata[].AccessKeyId' --output text); do
+    aws iam delete-access-key --user-name "$APP_USER" --access-key-id "$key"
+  done
+  aws iam delete-user-policy --user-name "$APP_USER" --policy-name demo 2>/dev/null || true
+  aws iam delete-user --user-name "$APP_USER"
 fi
 
 log "Deleting DNS records"

@@ -61,8 +61,18 @@ the kubeconfig and SSH keys, is kept in `~/.cache/caplv-aws/<cluster>`.
 | 4 | `./workers.sh` | ~20 min | Creates one RHCOS worker per libvirt host, following `docs/getting-started.md`. `--delete` removes them. Options: `BOOTSTRAP=pointer` uses OpenShift's worker pointer config instead of the full rendered one; `DIRECT_BOOT=1` boots with `bootArtifacts`; `HOST_KEY_TYPE=ecdsa` is needed with CAPLV v0.3.0. |
 | 5 | `./down.sh` | ~5 min | Removes everything, then lists anything still tagged `caplv-e2e`. |
 
+The [PostgreSQL HA demo](../../docs/demos/postgres-ha.md) adds three
+scripts, run after steps 1 to 3 with the libvirt hosts built from the RHEL
+HA images (`HOST_IMAGE_FAMILY=RHEL_HA HOST_RHEL_MAJORS="10 10 10" ./infra.sh`):
+
+| Script | Time | What it does |
+| --- | --- | --- |
+| `./pgha.sh` | ~15 min | Builds the Pacemaker cluster with PostgreSQL, pgvector, `fence_aws`, the virtual IP and the eviction agent (`pgha/evict`); creates the LibvirtHosts and a two-worker MachineDeployment on the standbys. Needs a CAPLV build with `LibvirtHost.spec.unschedulable`. |
+| `./demo.sh` | ~15 min | Installs the Red Hat build of Kueue and its queue, builds the demo app (`demo/`) in the cluster and prints its URL. |
+| `./refresh-ips.sh` | seconds | Updates the hosts' public addresses in the state directory, which change whenever an instance is stopped and started, as the demo's kill and recovery do. |
+
 Every step can be run again. The environment costs about $2 an hour while
-it exists, so run `./down.sh` when done.
+it exists ($3 with the demo's HA hosts), so run `./down.sh` when done.
 
 ```bash
 export KUBECONFIG=~/.cache/caplv-aws/caplv-sno/install/auth/kubeconfig
