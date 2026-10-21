@@ -289,6 +289,7 @@ func (r *LibvirtMachineReconciler) reconcileNormal(
 
 	// Fetch SSH secret and create clients.
 	sshClient, libvirtClient, err := r.createClients(ctx, libvirtHost)
+	setHostReachableCondition(libvirtMachine, err)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create clients: %w", err)
 	}
@@ -1814,6 +1815,25 @@ func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infr
 
 	libvirtClient := r.LibvirtClientFactory(sshClient, connURI)
 	return sshClient, libvirtClient, nil
+}
+
+// setHostReachableCondition records whether the controller could connect to
+// the machine's host. It runs on every reconcile that gets past the host's
+// readiness check, so it also replaces the HostNotReady reported while the
+// host was not Ready.
+func setHostReachableCondition(lm *infrav1.LibvirtMachine, connectErr error) {
+	condition := metav1.Condition{
+		Type:               infrav1.HostReachableForMachineCondition,
+		Status:             metav1.ConditionTrue,
+		Reason:             infrav1.ReasonConnectionSucceeded,
+		ObservedGeneration: lm.Generation,
+	}
+	if connectErr != nil {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = infrav1.ReasonConnectionFailed
+		condition.Message = connectErr.Error()
+	}
+	apimeta.SetStatusCondition(&lm.Status.Conditions, condition)
 }
 
 // handleLibvirtError inspects the error and returns an appropriate error.
