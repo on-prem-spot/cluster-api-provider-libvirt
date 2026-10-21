@@ -1279,9 +1279,36 @@ func (r *LibvirtMachineReconciler) reconcileBootArtifacts(ctx context.Context, r
 
 	rc.kernelPath = kernelPath
 	rc.initrdPath = initrdPath
-	rc.kernelCmdline = ba.KernelArgs
+	rc.kernelCmdline = directBootCmdline(ba.KernelArgs, rc.libvirtMachine.Spec.BootstrapFormat, rc.network(),
+		rc.machineScope.Hostname())
 	log.Info("Direct-boot artifacts staged", "kernel", kernelPath, "initrd", initrdPath)
 	return nil
+}
+
+// directBootCmdline is the kernel command line of a direct-boot machine: the
+// cluster's kernelArgs, plus, for an Ignition machine with static addresses,
+// the dracut arguments that give the initramfs its address, so that Ignition
+// can fetch a pointer config's target (OpenShift's machine config server)
+// on a network without DHCP. kernelArgs that already set ip= are left alone.
+func directBootCmdline(kernelArgs string, format infrav1.BootstrapFormat, network infrav1.NetworkSpec,
+	hostname string) string {
+	if format != infrav1.BootstrapFormatIgnition {
+		return kernelArgs
+	}
+	for _, arg := range strings.Fields(kernelArgs) {
+		if strings.HasPrefix(arg, "ip=") {
+			return kernelArgs
+		}
+	}
+	cfg := ignition.NetworkConfig{Addresses: network.Addresses, Gateway: network.Gateway}
+	if network.DNS != nil {
+		cfg.DNSServers = network.DNS.Nameservers
+	}
+	netArgs := ignition.KernelNetworkArgs(cfg, hostname)
+	if netArgs == "" {
+		return kernelArgs
+	}
+	return strings.TrimSpace(kernelArgs + " " + netArgs)
 }
 
 func (r *LibvirtMachineReconciler) resolveCachedArtifacts(
