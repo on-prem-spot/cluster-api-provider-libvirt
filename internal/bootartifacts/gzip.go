@@ -17,28 +17,26 @@ limitations under the License.
 package bootartifacts
 
 import (
-	"bytes"
+	"bufio"
 	"compress/gzip"
+	"io"
 )
 
-// decompressIfGzip returns raw unchanged if it does not start with the gzip
-// magic bytes (0x1f 0x8b); otherwise it decompresses one layer of gzip and
-// returns the payload. A raw kernel bzImage starts with "MZ" and a raw cpio
-// initramfs starts with "070701", so the magic-byte sniff has no false
+// gunzipIfGzip returns a reader of r's payload: r itself unless it starts
+// with the gzip magic bytes (0x1f 0x8b), in which case one layer of gzip is
+// decompressed as it is read. A raw kernel bzImage starts with "MZ" and a raw
+// cpio initramfs starts with "070701", so the magic-byte sniff has no false
 // positives on the artifacts we actually fetch.
 //
 // We decompress at most one layer. If Artifactory or a similar mirror wraps
 // an already-gzipped initramfs in a second gzip for transport, the inner
 // gzip is left intact and the kernel's own decompressor handles it at boot.
-func decompressIfGzip(raw []byte) ([]byte, error) {
-	if len(raw) < 2 || raw[0] != 0x1f || raw[1] != 0x8b {
-		return raw, nil
+func gunzipIfGzip(r io.Reader) (io.Reader, error) {
+	br := bufio.NewReader(r)
+	magic, err := br.Peek(2)
+	if err != nil || magic[0] != 0x1f || magic[1] != 0x8b {
+		// Shorter than two bytes, or not gzip: the payload as it is.
+		return br, nil
 	}
-	r, err := gzip.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = r.Close() }()
-	// Bounded: the expansion ratio of the compressed input is attacker-chosen.
-	return readLimited(r, MaxArtifactBytes, "gzip-decompressed artifact")
+	return gzip.NewReader(br)
 }

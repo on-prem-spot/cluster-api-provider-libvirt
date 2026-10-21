@@ -144,7 +144,12 @@
           # root. Managed by deploy/ansible/setup-host.yaml; do not edit in place.
           set -euo pipefail
 
+          # Per-machine artifacts (ignition configs, ephemeral pools) live on
+          # the /run tmpfs. Artifacts that must survive a reboot, such as the
+          # kernels and initramfs images of direct kernel boot, which a VM
+          # needs at every boot, live under /var/lib/caplv.
           readonly BASE=/run/caplv
+          readonly PERSISTENT_BASE=/var/lib/caplv
           readonly LIBVIRT_MODE={{ libvirt_mode | quote }}
           readonly CAPLV_USER={{ caplv_user | quote }}
 
@@ -164,21 +169,37 @@
             die "usage: caplv-hostctl {mkdir|write|rm|rmdir|exists|mount-tmpfs|umount} <path> [arg]"
           }
 
-          # Canonicalise PATH and require the result to stay under $BASE.
-          # realpath -m resolves '..' and any symlinked component without
-          # requiring the leaf to exist, so neither traversal nor a planted
-          # symlink can point the operation outside the CAPLV directory.
+          # Canonicalise PATH and require the result to stay under $BASE or
+          # $PERSISTENT_BASE. realpath -m resolves '..' and any symlinked
+          # component without requiring the leaf to exist, so neither
+          # traversal nor a planted symlink can point the operation outside
+          # the CAPLV directories.
           resolve() {
             local raw=$1 canon
             [[ $raw == /* ]] || die "path must be absolute: $raw"
             canon=$(realpath -m -- "$raw") || die "cannot resolve path: $raw"
-            [[ $canon == "$BASE" || $canon == "$BASE"/* ]] \
-              || die "refusing to operate outside $BASE: $raw -> $canon"
+            [[ $canon == "$BASE" || $canon == "$BASE"/* ||
+               $canon == "$PERSISTENT_BASE" || $canon == "$PERSISTENT_BASE"/* ]] \
+              || die "refusing to operate outside $BASE and $PERSISTENT_BASE: $raw -> $canon"
             printf '%s' "$canon"
           }
 
+          # base_of prints the CAPLV directory a resolved path is under.
+          base_of() {
+            if [[ $1 == "$PERSISTENT_BASE" || $1 == "$PERSISTENT_BASE"/* ]]; then
+              printf '%s' "$PERSISTENT_BASE"
+            else
+              printf '%s' "$BASE"
+            fi
+          }
+
           ensure_base() {
-            install -d -m 0755 -o root -g root -- "$BASE"
+            install -d -m 0755 -o root -g root -- "$(base_of "$target")"
+          }
+
+          # tmpfs mounts belong on /run, never on the persistent directory.
+          require_run() {
+            [[ $(base_of "$target") == "$BASE" ]] || die "refusing to $action outside $BASE: $target"
           }
 
           [[ $# -ge 2 ]] || usage
@@ -220,7 +241,7 @@
               [[ $# -eq 2 ]] || usage
               # A machine's artifact directory, once its files are deleted.
               # rmdir refuses a non-empty directory; a missing one is done.
-              [[ $target != "$BASE" ]] || die "refusing to remove $BASE"
+              [[ $target != "$BASE" && $target != "$PERSISTENT_BASE" ]] || die "refusing to remove $target"
               [[ ! -e $target ]] || rmdir -- "$target"
               ;;
             exists)
@@ -231,6 +252,7 @@
               ;;
             mount-tmpfs)
               [[ $# -le 3 ]] || usage
+              require_run
               # A bare `mount -t tmpfs` leaves the mount root 1777 (tmpfs's
               # default), i.e. world-writable, so uid/gid/mode are always set.
               opts="mode=$DIR_MODE"
@@ -257,6 +279,7 @@
               ;;
             umount)
               [[ $# -eq 2 ]] || usage
+              require_run
               umount -- "$target" 2>/dev/null || true
               rmdir -- "$target" 2>/dev/null || true
               ;;

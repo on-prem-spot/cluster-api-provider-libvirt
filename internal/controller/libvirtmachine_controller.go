@@ -1270,10 +1270,10 @@ func (r *LibvirtMachineReconciler) reconcileBootArtifacts(ctx context.Context, r
 	kernelPath := path.Join(hostPath, artifacts.KernelSHA256, "vmlinuz")
 	initrdPath := path.Join(hostPath, artifacts.InitramfsSHA256, "initramfs.img")
 
-	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, kernelPath, artifacts.KernelBytes); err != nil {
+	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, kernelPath, artifacts.KernelPath); err != nil {
 		return r.handleLibvirtError(rc.libvirtMachine, err, "staging boot kernel")
 	}
-	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, initrdPath, artifacts.InitramfsBytes); err != nil {
+	if err := r.ensureRemoteArtifact(ctx, rc.libvirtClient, initrdPath, artifacts.InitramfsPath); err != nil {
 		return r.handleLibvirtError(rc.libvirtMachine, err, "staging boot initramfs")
 	}
 
@@ -1522,11 +1522,14 @@ func hostFromURL(raw string) string {
 	return u.Host
 }
 
+// ensureRemoteArtifact copies the boot artifact at localPath, in the
+// manager's cache, to remotePath on the host unless it is there already,
+// streaming it: an initramfs does not fit in the manager's memory.
 func (r *LibvirtMachineReconciler) ensureRemoteArtifact(
 	ctx context.Context,
 	c libvirt.Client,
 	remotePath string,
-	data []byte,
+	localPath string,
 ) error {
 	exists, err := c.RemoteFileExists(ctx, remotePath)
 	if err != nil {
@@ -1535,7 +1538,12 @@ func (r *LibvirtMachineReconciler) ensureRemoteArtifact(
 	if exists {
 		return nil
 	}
-	return c.WriteRemoteFile(ctx, remotePath, data)
+	f, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("open cached boot artifact: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return c.WriteRemoteFileFrom(ctx, remotePath, f)
 }
 
 // bootArtifactsCacheKey produces a stable cache key from a source spec so we

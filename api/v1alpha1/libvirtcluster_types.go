@@ -192,6 +192,9 @@ type S3BaseImageSource struct {
 type BootArtifactsSpec struct {
 	// HostPath is the directory on each libvirt host where kernel/initramfs are cached.
 	// Files land at <HostPath>/<sha256>/vmlinuz and <HostPath>/<sha256>/initramfs.img.
+	// It must be /var/lib/caplv or a directory under it: the host helper
+	// (caplv-hostctl) writes only there and under /run/caplv, and /run is a
+	// tmpfs, while a VM needs its kernel at every boot.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^/[A-Za-z0-9._/-]+$`
 	HostPath string `json:"hostPath"`

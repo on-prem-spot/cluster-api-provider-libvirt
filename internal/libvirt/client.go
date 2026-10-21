@@ -71,6 +71,9 @@ type Client interface {
 	DeleteVolume(ctx context.Context, pool, name string) error
 	GetVolumePath(ctx context.Context, pool, name string) (string, error)
 	WriteRemoteFile(ctx context.Context, path string, data []byte) error
+	// WriteRemoteFileFrom is WriteRemoteFile streaming from r, for payloads
+	// too large to hold in memory.
+	WriteRemoteFileFrom(ctx context.Context, path string, r io.Reader) error
 	RemoteFileExists(ctx context.Context, path string) (bool, error)
 	DeleteRemoteFile(ctx context.Context, path string) error
 	// RemoveRemoteDir removes an empty directory on the remote host; a

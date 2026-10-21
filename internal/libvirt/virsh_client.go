@@ -652,6 +652,12 @@ func hostCtlCmd(action string, args ...string) string {
 // the ignition config staged here carries the cluster's worker bootstrap
 // credentials, and these hosts run incumbent workloads with other local users.
 func (c *VirshClient) WriteRemoteFile(ctx context.Context, path string, data []byte) error {
+	return c.WriteRemoteFileFrom(ctx, path, bytes.NewReader(data))
+}
+
+// WriteRemoteFileFrom writes what r yields to a file on the remote host via
+// SSH, streaming it, as WriteRemoteFile does for bytes in memory.
+func (c *VirshClient) WriteRemoteFileFrom(ctx context.Context, path string, r io.Reader) error {
 	idx := strings.LastIndex(path, "/")
 	if idx <= 0 {
 		return fmt.Errorf("remote path must be absolute and contain a directory: %q", path)
@@ -666,7 +672,7 @@ func (c *VirshClient) WriteRemoteFile(ctx context.Context, path string, data []b
 	if err != nil {
 		return fmt.Errorf("ssh session for write: %w", err)
 	}
-	session.Stdin = bytes.NewReader(data)
+	session.Stdin = r
 	if err := session.Run(hostCtlCmd("write", path)); err != nil {
 		_ = session.Close()
 		return fmt.Errorf("write remote file %s: %w", path, err)
