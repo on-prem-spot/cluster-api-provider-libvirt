@@ -28,14 +28,17 @@
 #   BASE_IMAGE                    (qcow2 in the libvirt storage pool)
 #   CONTROL_PLANE_IP              (CIDR, e.g. 192.168.1.10/24)
 #   NETWORK_GATEWAY, NETWORK_DNS
-#   BOOT_KERNEL_URL               (https:// URL of the kernel, e.g. rhcos-live-kernel)
+#   BOOT_KERNEL_URL               (https:// URL of the kernel the VM boots, every
+#                                  time; not RHCOS's live PXE kernel, which boots
+#                                  a live system rather than the root disk)
 #   BOOT_INITRAMFS_URL            (https:// URL of the matching initramfs)
 #
 # Optional (have defaults):
 #   SERVICE_CIDR, POD_CIDR, SERVICE_DOMAIN
 #   VCPUS, MEMORY_MB, ROOT_DISK_SIZE, STORAGE_POOL
 #   NETWORK_TYPE, NETWORK_NAME
-#   BOOT_ARTIFACTS_HOST_PATH      (cache dir on each host, default /var/lib/caplv/boot)
+#   BOOT_ARTIFACTS_HOST_PATH      (cache dir on each host, under /var/lib/caplv;
+#                                  default /var/lib/caplv/boot)
 #   BOOT_KERNEL_ARGS              (kernel cmdline; must point ignition at the
 #                                  virtio-ignition disk, see the default)
 #   BOOT_KERNEL_SHA256, BOOT_INITRAMFS_SHA256

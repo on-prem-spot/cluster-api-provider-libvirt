@@ -196,18 +196,46 @@ health only once the Cluster reports its control plane initialized.
 
 ## Create a worker directly
 
-First, fetch the worker ignition from the Machine Config Server on a
-cluster node and create a bootstrap secret:
+First, create a bootstrap Secret with the worker's Ignition config. On a
+libvirt network (`network.type: network`), use OpenShift's own worker
+*pointer* config, the one the Machine API uses:
 
 ```bash
-ssh core@<node-ip> "sudo curl -sk \
-  -H 'Accept: application/vnd.coreos.ignition+json;version=3.2.0' \
-  https://localhost:22623/config/worker" > worker-ignition.json
+kubectl get secret -n openshift-machine-api worker-user-data \
+  -o jsonpath='{.data.userData}' | base64 -d > worker-ignition.json
 
 kubectl create secret generic worker-bootstrap -n default \
   --from-file=value=worker-ignition.json \
   --from-literal=format=ignition
 ```
+
+It is about 2 KB and tells Ignition to fetch the rest from the cluster's
+machine config server (`api-int:22623`) at first boot, so it stays current
+across upgrades and certificate rotations. Ignition fetches it from the
+initramfs, before the static address CAPLV gives the VM takes effect, so the
+initramfs needs an address of its own: CAPLV reserves each VM's address for
+its MAC on the libvirt network, which then answers the initramfs by DHCP
+(and hands out no other address).
+
+On a bridge (`network.type: bridge`), CAPLV does not control DHCP. Use the
+pointer config if the LAN's DHCP gives the VM an address at first boot.
+Otherwise, use the whole rendered config, fetched from the machine config
+server on a cluster node:
+
+```bash
+ssh core@<node-ip> "sudo curl -sk \
+  -H 'Accept: application/vnd.coreos.ignition+json;version=3.2.0' \
+  https://localhost:22623/config/worker" > worker-ignition.json
+```
+
+It needs no network at first boot, but it is about 500 KB, so:
+
+- It is slow to read over QEMU fw_cfg. The kernel driver slows down as the
+  file grows, and a VM on a nested-virtualization host took about six
+  minutes.
+- `kubectl apply` cannot store it, because the last-applied annotation is
+  limited to 256 KB; use `kubectl create` or server-side apply.
+- It goes stale: fetch it again after cluster upgrades.
 
 Then create a Machine + LibvirtMachine:
 

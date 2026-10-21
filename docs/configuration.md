@@ -125,6 +125,28 @@ delivery to libvirt direct-kernel-boot plus a virtio-blk ignition disk:
 - The domain XML is rendered with `<kernel>` / `<initrd>` / `<cmdline>` plus
   a virtio-blk disk with `serial=ignition` carrying the rendered config.
 
+Things to know before using it:
+
+- **The kernel boots the machine every time.** The domain always boots the
+  configured kernel and initramfs, not the root disk's own. The RHCOS
+  *live* (PXE) kernel and initramfs boot a live system from RAM: they need
+  `coreos.live.rootfs_url` and do not use the root disk. They are therefore
+  not suitable for OpenShift workers, which the machine config daemon
+  updates on disk and reboots. For OpenShift, keep the Ignition payload
+  small instead: see [Create a worker directly](getting-started.md#create-a-worker-directly).
+- **`hostPath` must be `/var/lib/caplv` or a directory under it.** The host
+  helper (`caplv-hostctl`) writes only there and under the `/run/caplv`
+  tmpfs, and a VM needs its kernel at every boot. Hosts set up before the
+  helper allowed `/var/lib/caplv` need `deploy/ansible/setup-host.yaml` run
+  again.
+- **Static addresses reach the initramfs.** For an Ignition machine with a
+  static address, CAPLV appends `rd.neednet=1 ip=<address>::<gateway>:<netmask>:<hostname>:enp1s0:none nameserver=<dns>`
+  to `kernelArgs`, unless `kernelArgs` already sets `ip=`. That lets
+  Ignition fetch a pointer config's target on a network without DHCP.
+- **The manager stages artifacts on disk.** It streams them into
+  `--boot-artifacts-cache-dir`, an emptyDir in the shipped manifests,
+  before copying them to each host.
+
 Three transports are supported: **HTTPS**, **OCI** (single artifact with two
 layers), and **S3** (any S3-compatible store).
 
