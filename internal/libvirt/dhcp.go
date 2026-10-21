@@ -37,49 +37,42 @@ type dhcpNetwork struct {
 	} `xml:"ip"`
 }
 
-// dhcpAction is what a network definition calls for to reserve ip for mac.
-type dhcpAction int
-
-const (
-	// dhcpLeaveAlone: the network hands out IPv4 addresses of its own, or
-	// already reserves ip for mac.
-	dhcpLeaveAlone dhcpAction = iota
-	// dhcpAdd: no reservation for mac yet.
-	dhcpAdd
-	// dhcpReplace: mac is reserved, but for another address.
-	dhcpReplace
-)
-
-// dhcpReservationAction decides, from a network's XML, whether ip must be
-// reserved for mac. Every update of a network's DHCP hosts makes libvirt
-// remove and re-add the network's firewall rules, which disturbs the
-// network and drops rules others inserted into libvirt's chains, so the
-// network is changed only when it must be: when it gives a guest no IPv4
-// address by DHCP of its own (it has no range), and the reservation is not
-// already there.
-func dhcpReservationAction(networkXML, mac, ip string) (dhcpAction, error) {
+// dhcpReservationPlan decides, from a network's XML, whether ip must be
+// reserved for mac, and which existing reservations (by MAC) must go first:
+// one for mac with another address, and any for another MAC that holds ip,
+// since libvirt refuses a second entry for an address. A reservation for ip
+// under another MAC is stale: the address is this machine's, and it outlives
+// a VM whose MAC was different (one CAPLV made before MACs followed the
+// address) or whose host was lost before the reservation was released.
+//
+// Every update of a network's DHCP hosts makes libvirt remove and re-add the
+// network's firewall rules, which disturbs the network and drops rules
+// others inserted into libvirt's chains, so the network is changed only when
+// it must be: when it gives a guest no IPv4 address by DHCP of its own (it
+// has no range), and the reservation is not already there.
+func dhcpReservationPlan(networkXML, mac, ip string) (reserve bool, remove []string, err error) {
 	var network dhcpNetwork
 	if err := xml.Unmarshal([]byte(networkXML), &network); err != nil {
-		return dhcpLeaveAlone, fmt.Errorf("parse network XML: %w", err)
+		return false, nil, fmt.Errorf("parse network XML: %w", err)
 	}
-	action := dhcpAdd
 	for _, addr := range network.IPs {
 		if addr.Family != "" && addr.Family != "ipv4" || addr.DHCP == nil {
 			continue
 		}
 		if len(addr.DHCP.Ranges) > 0 {
-			return dhcpLeaveAlone, nil
+			return false, nil, nil
 		}
 		for _, host := range addr.DHCP.Hosts {
-			if strings.EqualFold(host.MAC, mac) {
-				if host.IP == ip {
-					return dhcpLeaveAlone, nil
-				}
-				action = dhcpReplace
+			sameMAC := strings.EqualFold(host.MAC, mac)
+			switch {
+			case sameMAC && host.IP == ip:
+				return false, nil, nil
+			case sameMAC || host.IP == ip:
+				remove = append(remove, host.MAC)
 			}
 		}
 	}
-	return action, nil
+	return true, remove, nil
 }
 
 // dhcpReservedFor reports whether a network's XML reserves an address for
