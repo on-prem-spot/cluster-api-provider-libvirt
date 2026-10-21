@@ -73,5 +73,8 @@ type Client interface {
 	WriteRemoteFile(ctx context.Context, path string, data []byte) error
 	RemoteFileExists(ctx context.Context, path string) (bool, error)
 	DeleteRemoteFile(ctx context.Context, path string) error
+	// RemoveRemoteDir removes an empty directory on the remote host; a
+	// missing one is not an error.
+	RemoveRemoteDir(ctx context.Context, path string) error
 	Close() error
 }

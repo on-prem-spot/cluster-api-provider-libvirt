@@ -1764,6 +1764,8 @@ func (r *LibvirtMachineReconciler) reconcileDelete(
 			"Destroyed ephemeral tmpfs pool %q", ephPoolName)
 	}
 
+	removeIgnitionDir(ctx, libvirtClient, libvirtMachine, machineScope.IgnitionFilePath())
+
 	// Delete the Node object from the cluster if it exists and is genuinely
 	// this machine's. The name alone does not prove that (see
 	// nodeBelongsToMachine), and deleting a Node evicts its workloads.
@@ -1815,6 +1817,22 @@ func (r *LibvirtMachineReconciler) createClients(ctx context.Context, host *infr
 
 	libvirtClient := r.LibvirtClientFactory(sshClient, connURI)
 	return sshClient, libvirtClient, nil
+}
+
+// removeIgnitionDir removes the directory that held an ignition machine's
+// ignition file, once the file is deleted. The directory is the machine's,
+// under /run/caplv, and an ephemeral pool mounted there has removed it
+// already. Failing is not fatal: hosts set up before caplv-hostctl had rmdir
+// refuse the action, and the empty directory then lasts only until the host
+// reboots, since /run is a tmpfs.
+func removeIgnitionDir(ctx context.Context, c libvirt.Client, lm *infrav1.LibvirtMachine, ignitionFile string) {
+	if lm.Spec.BootstrapFormat != infrav1.BootstrapFormatIgnition {
+		return
+	}
+	dir := path.Dir(ignitionFile)
+	if err := c.RemoveRemoteDir(ctx, dir); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to remove machine artifact directory (non-fatal)", "path", dir)
+	}
 }
 
 // setHostReachableCondition records whether the controller could connect to

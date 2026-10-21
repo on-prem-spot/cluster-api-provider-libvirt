@@ -49,6 +49,7 @@ type MockClient struct {
 	WriteRemoteFileFn              func(ctx context.Context, path string, data []byte) error
 	RemoteFileExistsFn             func(ctx context.Context, path string) (bool, error)
 	DeleteRemoteFileFn             func(ctx context.Context, path string) error
+	RemoveRemoteDirFn              func(ctx context.Context, path string) error
 	CloseFn                        func() error
 }
 
@@ -256,6 +257,14 @@ func (m *MockClient) RemoteFileExists(ctx context.Context, path string) (bool, e
 func (m *MockClient) DeleteRemoteFile(ctx context.Context, path string) error {
 	if m.DeleteRemoteFileFn != nil {
 		return m.DeleteRemoteFileFn(ctx, path)
+	}
+	return nil
+}
+
+// RemoveRemoteDir delegates to RemoveRemoteDirFn or returns nil.
+func (m *MockClient) RemoveRemoteDir(ctx context.Context, path string) error {
+	if m.RemoveRemoteDirFn != nil {
+		return m.RemoveRemoteDirFn(ctx, path)
 	}
 	return nil
 }

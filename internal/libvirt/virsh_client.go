@@ -708,6 +708,11 @@ func (c *VirshClient) DeleteRemoteFile(ctx context.Context, path string) error {
 	return c.runSSH(ctx, hostCtlCmd("rm", path))
 }
 
+// RemoveRemoteDir removes an empty directory on the remote host via SSH.
+func (c *VirshClient) RemoveRemoteDir(ctx context.Context, path string) error {
+	return c.runSSH(ctx, hostCtlCmd("rmdir", path))
+}
+
 // Close closes the underlying SSH connection.
 func (c *VirshClient) Close() error {
 	if c.sshClient != nil {

@@ -161,7 +161,7 @@
           die() { printf 'caplv-hostctl: %s\n' "$*" >&2; exit 1; }
 
           usage() {
-            die "usage: caplv-hostctl {mkdir|write|rm|exists|mount-tmpfs|umount} <path> [arg]"
+            die "usage: caplv-hostctl {mkdir|write|rm|rmdir|exists|mount-tmpfs|umount} <path> [arg]"
           }
 
           # Canonicalise PATH and require the result to stay under $BASE.
@@ -215,6 +215,13 @@
             rm)
               [[ $# -eq 2 ]] || usage
               rm -f -- "$target"
+              ;;
+            rmdir)
+              [[ $# -eq 2 ]] || usage
+              # A machine's artifact directory, once its files are deleted.
+              # rmdir refuses a non-empty directory; a missing one is done.
+              [[ $target != "$BASE" ]] || die "refusing to remove $BASE"
+              [[ ! -e $target ]] || rmdir -- "$target"
               ;;
             exists)
               [[ $# -eq 2 ]] || usage
