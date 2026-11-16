@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	posixpath "path"
 	"regexp"
 	"strings"
 
@@ -33,6 +34,10 @@ import (
 
 	infrastructurev1alpha1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
 )
+
+// bootArtifactsHostDir is the directory on each libvirt host under which
+// bootArtifacts.hostPath must lie: caplv-hostctl's persistent directory.
+const bootArtifactsHostDir = "/var/lib/caplv"
 
 var libvirtclusterlog = logf.Log.WithName("libvirtcluster-resource")
 
@@ -128,6 +133,15 @@ func validateClusterSpec(spec infrastructurev1alpha1.LibvirtClusterSpec, base *f
 
 	if ba := spec.BootArtifacts; ba != nil {
 		allErrs = append(allErrs, validateBootArtifactsSource(ba.Source, base.Child("bootArtifacts", "source"))...)
+		// caplv-hostctl writes host files only under /run/caplv, a tmpfs, and
+		// /var/lib/caplv; a VM needs its kernel at every boot, so only the
+		// persistent directory will do.
+		if hostPath := posixpath.Clean(ba.HostPath); hostPath != bootArtifactsHostDir &&
+			!strings.HasPrefix(hostPath, bootArtifactsHostDir+"/") {
+			allErrs = append(allErrs, field.Invalid(base.Child("bootArtifacts", "hostPath"), ba.HostPath,
+				"must be "+bootArtifactsHostDir+" or a directory under it, where the host helper may write "+
+					"and which survives host reboots"))
+		}
 	}
 	if bi := spec.BaseImage; bi != nil {
 		allErrs = append(allErrs, validateBaseImageSource(bi.Source, base.Child("baseImage", "source"))...)

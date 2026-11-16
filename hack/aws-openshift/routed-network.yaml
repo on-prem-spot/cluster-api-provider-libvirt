@@ -1,0 +1,100 @@
+---
+# Defines the libvirt network "caplv" on each host of infra.sh's inventory:
+# routed (not NAT) mode on <vm_subnet>.0/24 with the host at <vm_subnet>.1,
+# no DHCP since CAPLV gives every VM a static address. The SNO host is the
+# exception: the agent-based installer applies the SNO VM's static address
+# to its live ISO but did not carry it onto the installed system, which then
+# falls back to DHCP, so the SNO VM's address is also reserved by MAC.
+# libvirt's dnsmasq answers DNS on <vm_subnet>.1 by forwarding to the host's
+# resolver, which is the VPC's, so the VMs resolve the cluster's private
+# names (api-int).
+#
+# The internet gateway forwards only addresses AWS assigned, so the host
+# masquerades its VMs' traffic to the internet (quay.io and the like), and
+# only that: traffic to the VPC and the other VMs stays routed, so the
+# cluster still reaches the VMs at their own addresses.
+
+- name: Define the routed CAPLV network
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check for the caplv network
+      ansible.builtin.command: virsh -c qemu:///system net-info caplv
+      register: net_info
+      changed_when: false
+      failed_when: false
+
+    - name: Define the caplv network
+      when: net_info.rc != 0
+      block:
+        - name: Write the network definition
+          ansible.builtin.copy:
+            dest: /root/caplv-network.xml
+            mode: "0600"
+            content: |
+              <network>
+                <name>caplv</name>
+                <forward mode='route'/>
+                <bridge name='virbr-caplv' stp='on' delay='0'/>
+                <ip address='{{ vm_subnet }}.1' netmask='255.255.255.0'>
+              {% if 'sno' in group_names %}
+                  <dhcp>
+                    <range start='{{ sno_ip }}' end='{{ sno_ip }}'/>
+                    <host mac='{{ sno_mac }}' ip='{{ sno_ip }}'/>
+                  </dhcp>
+              {% endif %}
+                </ip>
+              </network>
+
+        - name: Define the network
+          ansible.builtin.command: virsh -c qemu:///system net-define /root/caplv-network.xml
+          changed_when: true
+
+    - name: Start the caplv network
+      ansible.builtin.command: virsh -c qemu:///system net-start caplv
+      register: net_start
+      changed_when: net_start.rc == 0
+      failed_when: net_start.rc != 0 and 'already active' not in net_start.stderr
+
+    - name: Autostart the caplv network
+      ansible.builtin.command: virsh -c qemu:///system net-autostart caplv
+      changed_when: false
+
+    - name: Write the masquerade rules for internet-bound VM traffic
+      ansible.builtin.copy:
+        dest: /etc/caplv-masquerade.nft
+        mode: "0644"
+        content: |
+          table ip caplv_masquerade
+          delete table ip caplv_masquerade
+          table ip caplv_masquerade {
+            chain postrouting {
+              type nat hook postrouting priority srcnat; policy accept;
+              ip saddr {{ vm_subnet }}.0/24 ip daddr != { {{ vpc_cidr }}, {{ vm_network_cidr }} } masquerade
+            }
+          }
+
+    - name: Install the masquerade service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/caplv-masquerade.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Masquerade internet-bound traffic from CAPLV VMs
+          After=network-online.target libvirtd.service
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/sbin/nft -f /etc/caplv-masquerade.nft
+          ExecStop=/usr/sbin/nft delete table ip caplv_masquerade
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Apply the masquerade rules
+      ansible.builtin.systemd:
+        name: caplv-masquerade.service
+        enabled: true
+        state: restarted
+        daemon_reload: true

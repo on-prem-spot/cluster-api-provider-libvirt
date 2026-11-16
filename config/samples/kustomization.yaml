@@ -4,4 +4,5 @@ resources:
 - infrastructure_v1alpha1_libvirtcluster.yaml
 - infrastructure_v1alpha1_libvirtmachine.yaml
 - infrastructure_v1alpha1_libvirtclusteridentity.yaml
+- infrastructure_v1alpha1_libvirtexternalcontrolplane.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

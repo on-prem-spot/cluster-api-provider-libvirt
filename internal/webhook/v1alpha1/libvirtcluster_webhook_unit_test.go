@@ -59,6 +59,22 @@ func TestLibvirtClusterValidateCreate(t *testing.T) {
 		{name: "valid https boot artifacts", mutate: func(s *infrav1.LibvirtClusterSpec) {
 			s.BootArtifacts = httpsBootArtifacts()
 		}},
+		{name: "boot artifacts outside /var/lib/caplv", wantErr: "spec.bootArtifacts.hostPath", mutate: func(s *infrav1.LibvirtClusterSpec) {
+			s.BootArtifacts = httpsBootArtifacts()
+			s.BootArtifacts.HostPath = "/var/lib/libvirt/boot"
+		}},
+		{name: "boot artifacts escaping /var/lib/caplv", wantErr: "spec.bootArtifacts.hostPath", mutate: func(s *infrav1.LibvirtClusterSpec) {
+			s.BootArtifacts = httpsBootArtifacts()
+			s.BootArtifacts.HostPath = "/var/lib/caplv/../libvirt"
+		}},
+		{name: "boot artifacts on the /run tmpfs", wantErr: "spec.bootArtifacts.hostPath", mutate: func(s *infrav1.LibvirtClusterSpec) {
+			s.BootArtifacts = httpsBootArtifacts()
+			s.BootArtifacts.HostPath = "/run/caplv/boot"
+		}},
+		{name: "boot artifacts in /var/lib/caplv itself", mutate: func(s *infrav1.LibvirtClusterSpec) {
+			s.BootArtifacts = httpsBootArtifacts()
+			s.BootArtifacts.HostPath = "/var/lib/caplv"
+		}},
 		{name: "boot artifacts over plain http", wantErr: "spec.bootArtifacts.source.https.kernelURL", mutate: func(s *infrav1.LibvirtClusterSpec) {
 			s.BootArtifacts = httpsBootArtifacts()
 			s.BootArtifacts.Source.HTTPS.KernelURL = "http://mirror.example.com/vmlinuz"

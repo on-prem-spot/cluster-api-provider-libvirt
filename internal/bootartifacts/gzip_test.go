@@ -20,8 +20,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	infrav1 "github.com/on-prem-spot/cluster-api-provider-libvirt/api/v1alpha1"
@@ -40,25 +43,66 @@ func gzipBytes(t *testing.T, raw []byte) []byte {
 	return buf.Bytes()
 }
 
-func TestDecompressIfGzip(t *testing.T) {
+func TestStoreArtifact(t *testing.T) {
 	raw := []byte("plain payload")
-	if got, err := decompressIfGzip(raw); err != nil || !bytes.Equal(got, raw) {
-		t.Fatalf("plain bytes should pass through: got %q err %v", got, err)
+	for _, tc := range []struct {
+		name    string
+		input   []byte
+		digest  string
+		want    []byte
+		wantErr bool
+	}{
+		{name: "plain bytes pass through", input: raw, want: raw},
+		{name: "gzipped bytes are decompressed", input: gzipBytes(t, raw), want: raw},
+		{name: "the digest is of the payload", input: gzipBytes(t, raw), digest: sha256Hex(raw), want: raw},
+		{name: "a wrong digest is refused", input: raw, digest: sha256Hex([]byte("other")), wantErr: true},
+		{name: "corrupt gzip is refused", input: append([]byte{0x1f, 0x8b}, []byte("not really gzip")...),
+			wantErr: true},
+		{name: "an empty payload is stored", input: nil, want: []byte{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path, digest, err := storeArtifact(dir, bytes.NewReader(tc.input), tc.digest, "test artifact")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+					t.Errorf("expected nothing left in the cache, found %d entries", len(entries))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("storeArtifact: %v", err)
+			}
+			if got := artifactBytes(t, path); !bytes.Equal(got, tc.want) {
+				t.Errorf("stored %q, want %q", got, tc.want)
+			}
+			if digest != sha256Hex(tc.want) || filepath.Base(path) != digest {
+				t.Errorf("path %s, digest %s; want both named after %s", path, digest, sha256Hex(tc.want))
+			}
+		})
 	}
+}
 
-	wrapped := gzipBytes(t, raw)
-	if got, err := decompressIfGzip(wrapped); err != nil || !bytes.Equal(got, raw) {
-		t.Fatalf("gzipped bytes should decompress: got %q err %v", got, err)
+func TestCappedReader(t *testing.T) {
+	if got, err := io.ReadAll(newCappedReader(bytes.NewReader([]byte("12345")), 5, "x")); err != nil ||
+		string(got) != "12345" {
+		t.Errorf("a payload at the limit: got %q, %v", got, err)
 	}
+	if _, err := io.ReadAll(newCappedReader(bytes.NewReader([]byte("123456")), 5, "x")); err == nil {
+		t.Error("expected a payload over the limit to fail rather than be truncated")
+	}
+}
 
-	corrupt := append([]byte{0x1f, 0x8b}, []byte("not really gzip")...)
-	if _, err := decompressIfGzip(corrupt); err == nil {
-		t.Fatalf("expected error for corrupt gzip stream")
+// artifactBytes reads a stored artifact.
+func artifactBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // a path the test's resolver returned
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
 	}
-
-	if got, err := decompressIfGzip(nil); err != nil || got != nil {
-		t.Fatalf("nil input should pass through: got %v err %v", got, err)
-	}
+	return data
 }
 
 func TestHTTPSResolver_TransparentGzip(t *testing.T) {
@@ -77,7 +121,7 @@ func TestHTTPSResolver_TransparentGzip(t *testing.T) {
 	tls := httptest.NewTLSServer(mux)
 	defer tls.Close()
 
-	r := &HTTPSResolver{Client: tls.Client()}
+	r := &HTTPSResolver{Client: tls.Client(), Dir: t.TempDir()}
 	got, err := r.Resolve(context.Background(), infrav1.BootArtifactsSource{
 		Type: infrav1.BootArtifactsSourceHTTPS,
 		HTTPS: &infrav1.HTTPSBootArtifactsSource{
@@ -90,10 +134,10 @@ func TestHTTPSResolver_TransparentGzip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if !bytes.Equal(got.KernelBytes, kernel) {
-		t.Fatalf("kernel: expected decompressed payload, got %q", got.KernelBytes)
+	if got := artifactBytes(t, got.KernelPath); !bytes.Equal(got, kernel) {
+		t.Fatalf("kernel: expected decompressed payload, got %q", got)
 	}
-	if !bytes.Equal(got.InitramfsBytes, initramfs) {
-		t.Fatalf("initramfs: expected raw payload, got %q", got.InitramfsBytes)
+	if got := artifactBytes(t, got.InitramfsPath); !bytes.Equal(got, initramfs) {
+		t.Fatalf("initramfs: expected raw payload, got %q", got)
 	}
 }

@@ -24,8 +24,14 @@ import (
 
 // InjectMachineMetadata merges hostname and providerID into an ignition config.
 // The hostname is written to /etc/hostname. The providerID is written to a
-// kubelet systemd drop-in that sets --provider-id, enabling CAPI to correlate
-// the Node with the Machine object.
+// kubelet systemd drop-in, enabling CAPI to correlate the Node with the
+// Machine object.
+//
+// OpenShift's kubelet.service, on every platform, runs the kubelet with
+// --provider-id=${KUBELET_PROVIDERID}; cloud platforms set that variable in
+// their own drop-ins (AWS: 20-aws-providerid.conf, filled in from instance
+// metadata). On platform none it is unset, so CAPLV sets it, in a drop-in
+// named to sort after the platform ones.
 // Supports both ignition spec 2.x and 3.x formats.
 func InjectMachineMetadata(ignitionData []byte, hostname, providerID string) ([]byte, error) {
 	var config map[string]any
@@ -55,10 +61,9 @@ func InjectMachineMetadata(ignitionData []byte, hostname, providerID string) ([]
 	}
 
 	if providerID != "" {
-		dropinContents := fmt.Sprintf("[Service]\nEnvironment=\"KUBELET_PROVIDERID_FLAG=--provider-id=%s\"\n", providerID)
+		dropinContents := fmt.Sprintf("[Service]\nEnvironment=\"KUBELET_PROVIDERID=%s\"\n", providerID)
 		injectFile(config, "/etc/systemd/system/kubelet.service.d/90-provider-id.conf",
 			"data:,"+url.PathEscape(dropinContents), 0o644, isV3)
-		injectKubeletProviderIDEnv(config, providerID, isV3)
 	}
 
 	return json.Marshal(config)
@@ -67,19 +72,6 @@ func InjectMachineMetadata(ignitionData []byte, hostname, providerID string) ([]
 // InjectHostname is a convenience wrapper for backward compatibility.
 func InjectHostname(ignitionData []byte, hostname string) ([]byte, error) {
 	return InjectMachineMetadata(ignitionData, hostname, "")
-}
-
-// injectKubeletProviderIDEnv adds a kubelet environment drop-in that includes
-// the provider-id flag. On OpenShift, kubelet reads its flags from environment
-// files in /etc/kubernetes/kubelet-env, but the actual mechanism varies. The
-// systemd drop-in approach is the most reliable across versions.
-func injectKubeletProviderIDEnv(config map[string]any, providerID string, isV3 bool) {
-	// Also inject a node-annotations file that the MCO can pick up.
-	// This ensures the providerID annotation is set even if kubelet
-	// doesn't process the flag.
-	annotationContents := fmt.Sprintf(`KUBELET_PROVIDER_ID=%s`, providerID)
-	injectFile(config, "/etc/kubernetes/caplv-provider-id",
-		"data:,"+url.PathEscape(annotationContents), 0o644, isV3)
 }
 
 func injectFile(config map[string]any, path, source string, mode int, isV3 bool) {

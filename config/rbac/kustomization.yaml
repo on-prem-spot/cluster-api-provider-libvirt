@@ -1,5 +1,6 @@
 resources:
 - capi_aggregate_role.yaml
+- capi_workload_access_role.yaml
 # All RBAC will be applied under this service account in
 # the deployment namespace. You may comment out this resource
 # if your manager will use a service account that exists at
@@ -32,11 +33,9 @@ resources:
 - libvirthost_admin_role.yaml
 - libvirthost_editor_role.yaml
 - libvirthost_viewer_role.yaml
-
-# For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
-# default, aiding admins in cluster management. Those roles are
-# not used by the caplv itself. You can comment the following lines
-# if you do not want those helpers be installed with your Project.
+- libvirtexternalcontrolplane_admin_role.yaml
+- libvirtexternalcontrolplane_editor_role.yaml
+- libvirtexternalcontrolplane_viewer_role.yaml
 - libvirtclusteridentity_admin_role.yaml
 - libvirtclusteridentity_editor_role.yaml
 - libvirtclusteridentity_viewer_role.yaml

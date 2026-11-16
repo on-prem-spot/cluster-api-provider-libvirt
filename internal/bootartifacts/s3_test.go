@@ -149,7 +149,7 @@ func TestS3Resolver_Resolve(t *testing.T) {
 		},
 	}
 
-	r := NewS3Resolver()
+	r := NewS3Resolver(t.TempDir())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := r.Resolve(context.Background(), infrav1.BootArtifactsSource{
@@ -174,7 +174,7 @@ func TestS3Resolver_Resolve(t *testing.T) {
 			if got.InitramfsSHA256 != iSum {
 				t.Errorf("initramfs digest: got %s, want %s", got.InitramfsSHA256, iSum)
 			}
-			if string(got.KernelBytes) != string(kernel) {
+			if string(artifactBytes(t, got.KernelPath)) != string(kernel) {
 				t.Errorf("kernel bytes differ")
 			}
 		})
@@ -189,7 +189,7 @@ func TestS3Resolver_AuthRequired(t *testing.T) {
 		"initramfs.img": initramfs,
 	}, true)
 
-	r := NewS3Resolver()
+	r := NewS3Resolver(t.TempDir())
 	src := infrav1.BootArtifactsSource{
 		Type: infrav1.BootArtifactsSourceS3,
 		S3: &infrav1.S3BootArtifactsSource{
@@ -213,7 +213,7 @@ func TestS3Resolver_AuthRequired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticated read failed: %v", err)
 	}
-	if string(got.KernelBytes) != "k" || string(got.InitramfsBytes) != "i" {
+	if string(artifactBytes(t, got.KernelPath)) != "k" || string(artifactBytes(t, got.InitramfsPath)) != "i" {
 		t.Errorf("unexpected payload")
 	}
 }

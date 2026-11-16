@@ -18,12 +18,9 @@ package bootartifacts
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -33,12 +30,15 @@ import (
 
 // S3Resolver pulls kernel+initramfs from an S3-compatible object store via
 // the minio-go client (works with AWS S3, MinIO, Ceph RGW, GCS XML API).
-type S3Resolver struct{}
+type S3Resolver struct {
+	// Dir is where artifacts are stored.
+	Dir string
+}
 
-// NewS3Resolver returns an S3Resolver. The resolver is stateless; per-call
+// NewS3Resolver returns an S3Resolver that stores artifacts in dir. Per-call
 // behavior (endpoint, TLS, addressing style, credentials) is driven by the
 // BootArtifactsSource and Credentials passed to Resolve.
-func NewS3Resolver() *S3Resolver { return &S3Resolver{} }
+func NewS3Resolver(dir string) *S3Resolver { return &S3Resolver{Dir: dir} }
 
 // Resolve fetches both keys from the configured bucket, verifies any
 // user-supplied digests, and returns the artifact bytes.
@@ -72,19 +72,19 @@ func (r *S3Resolver) Resolve(ctx context.Context, src infrav1.BootArtifactsSourc
 		return nil, fmt.Errorf("init s3 client for %s: %w", spec.Endpoint, err)
 	}
 
-	kernelBytes, kernelDigest, err := fetchObject(ctx, client, spec.Bucket, spec.KernelKey, spec.KernelSHA256)
+	kernelPath, kernelDigest, err := fetchObject(ctx, client, spec.Bucket, spec.KernelKey, spec.KernelSHA256, r.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("kernel: %w", err)
 	}
-	initramfsBytes, initramfsDigest, err := fetchObject(ctx, client, spec.Bucket, spec.InitramfsKey, spec.InitramfsSHA256)
+	initramfsPath, initramfsDigest, err := fetchObject(ctx, client, spec.Bucket, spec.InitramfsKey, spec.InitramfsSHA256, r.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("initramfs: %w", err)
 	}
 
 	return &Artifacts{
-		KernelBytes:     kernelBytes,
+		KernelPath:      kernelPath,
 		KernelSHA256:    kernelDigest,
-		InitramfsBytes:  initramfsBytes,
+		InitramfsPath:   initramfsPath,
 		InitramfsSHA256: initramfsDigest,
 	}, nil
 }
@@ -96,26 +96,11 @@ func lookupStyle(usePath bool) minio.BucketLookupType {
 	return minio.BucketLookupAuto
 }
 
-func fetchObject(ctx context.Context, client *minio.Client, bucket, key, expectedSHA256 string) ([]byte, string, error) {
+func fetchObject(ctx context.Context, client *minio.Client, bucket, key, expectedSHA256, dir string) (string, string, error) {
 	obj, err := client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, "", fmt.Errorf("get s3://%s/%s: %w", bucket, key, err)
+		return "", "", fmt.Errorf("get s3://%s/%s: %w", bucket, key, err)
 	}
 	defer func() { _ = obj.Close() }()
-
-	raw, err := readLimited(obj, MaxArtifactBytes, fmt.Sprintf("object s3://%s/%s", bucket, key))
-	if err != nil {
-		return nil, "", fmt.Errorf("read s3://%s/%s: %w", bucket, key, err)
-	}
-	body, err := decompressIfGzip(raw)
-	if err != nil {
-		return nil, "", fmt.Errorf("decompress s3://%s/%s: %w", bucket, key, err)
-	}
-	sum := sha256.Sum256(body)
-	digest := hex.EncodeToString(sum[:])
-
-	if expectedSHA256 != "" && !strings.EqualFold(digest, expectedSHA256) {
-		return nil, "", fmt.Errorf("sha256 mismatch for s3://%s/%s: got %s, expected %s", bucket, key, digest, expectedSHA256)
-	}
-	return body, digest, nil
+	return storeArtifact(dir, obj, expectedSHA256, fmt.Sprintf("s3://%s/%s", bucket, key))
 }

@@ -652,6 +652,12 @@ func hostCtlCmd(action string, args ...string) string {
 // the ignition config staged here carries the cluster's worker bootstrap
 // credentials, and these hosts run incumbent workloads with other local users.
 func (c *VirshClient) WriteRemoteFile(ctx context.Context, path string, data []byte) error {
+	return c.WriteRemoteFileFrom(ctx, path, bytes.NewReader(data))
+}
+
+// WriteRemoteFileFrom writes what r yields to a file on the remote host via
+// SSH, streaming it, as WriteRemoteFile does for bytes in memory.
+func (c *VirshClient) WriteRemoteFileFrom(ctx context.Context, path string, r io.Reader) error {
 	idx := strings.LastIndex(path, "/")
 	if idx <= 0 {
 		return fmt.Errorf("remote path must be absolute and contain a directory: %q", path)
@@ -666,7 +672,7 @@ func (c *VirshClient) WriteRemoteFile(ctx context.Context, path string, data []b
 	if err != nil {
 		return fmt.Errorf("ssh session for write: %w", err)
 	}
-	session.Stdin = bytes.NewReader(data)
+	session.Stdin = r
 	if err := session.Run(hostCtlCmd("write", path)); err != nil {
 		_ = session.Close()
 		return fmt.Errorf("write remote file %s: %w", path, err)
@@ -706,6 +712,67 @@ func (c *VirshClient) RemoteFileExists(ctx context.Context, path string) (bool, 
 // DeleteRemoteFile deletes a file on the remote host via SSH.
 func (c *VirshClient) DeleteRemoteFile(ctx context.Context, path string) error {
 	return c.runSSH(ctx, hostCtlCmd("rm", path))
+}
+
+// ReserveDHCPAddress makes the libvirt network hand ip to mac by DHCP, with
+// hostname name, if the network would give the guest no address of its own:
+// it has no DHCP range. Such a network gets a static-only range from
+// libvirt, so it still hands out no address it was not told to. A network
+// with a range is left alone (see dhcpReservationAction).
+func (c *VirshClient) ReserveDHCPAddress(ctx context.Context, network, mac, ip, name string) error {
+	networkXML, err := c.runVirsh(ctx, "net-dumpxml", network)
+	if err != nil {
+		return err
+	}
+	action, err := dhcpReservationAction(networkXML, mac, ip)
+	if err != nil || action == dhcpLeaveAlone {
+		return err
+	}
+	if action == dhcpReplace {
+		if err := c.deleteDHCPHost(ctx, network, mac); err != nil {
+			return err
+		}
+	}
+	host := fmt.Sprintf("<host mac='%s' name='%s' ip='%s'/>", xmlAttr(mac), xmlAttr(name), xmlAttr(ip))
+	_, err = c.runVirsh(ctx, "net-update", network, "add-last", "ip-dhcp-host", host, "--live", "--config")
+	return err
+}
+
+// ReleaseDHCPAddress removes the libvirt network's DHCP reservation for mac,
+// if there is one. It checks first: even a failed update makes libvirt
+// rebuild the network's firewall rules.
+func (c *VirshClient) ReleaseDHCPAddress(ctx context.Context, network, mac string) error {
+	networkXML, err := c.runVirsh(ctx, "net-dumpxml", network)
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	reserved, err := dhcpReservedFor(networkXML, mac)
+	if err != nil || !reserved {
+		return err
+	}
+	return c.deleteDHCPHost(ctx, network, mac)
+}
+
+func (c *VirshClient) deleteDHCPHost(ctx context.Context, network, mac string) error {
+	host := fmt.Sprintf("<host mac='%s'/>", xmlAttr(mac))
+	_, err := c.runVirsh(ctx, "net-update", network, "delete", "ip-dhcp-host", host, "--live", "--config")
+	return err
+}
+
+// xmlAttrEscaper escapes a string for an XML attribute value.
+var xmlAttrEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "'", "&apos;", `"`, "&quot;")
+
+// xmlAttr escapes s for an XML attribute value.
+func xmlAttr(s string) string {
+	return xmlAttrEscaper.Replace(s)
+}
+
+// RemoveRemoteDir removes an empty directory on the remote host via SSH.
+func (c *VirshClient) RemoveRemoteDir(ctx context.Context, path string) error {
+	return c.runSSH(ctx, hostCtlCmd("rmdir", path))
 }
 
 // Close closes the underlying SSH connection.

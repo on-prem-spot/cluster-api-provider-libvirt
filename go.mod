@@ -1,6 +1,6 @@
 module github.com/on-prem-spot/cluster-api-provider-libvirt
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/diskfs/go-diskfs v1.9.1

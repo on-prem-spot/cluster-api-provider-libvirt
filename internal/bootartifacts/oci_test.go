@@ -183,7 +183,7 @@ func TestOCIResolver_Resolve(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := NewOCIResolver()
+			r := NewOCIResolver(t.TempDir())
 			got, err := r.Resolve(context.Background(), infrav1.BootArtifactsSource{
 				Type: infrav1.BootArtifactsSourceOCI,
 				OCI:  &tc.src,
@@ -206,10 +206,10 @@ func TestOCIResolver_Resolve(t *testing.T) {
 			if got.InitramfsSHA256 != iSum {
 				t.Errorf("initramfs digest: got %s, want %s", got.InitramfsSHA256, iSum)
 			}
-			if string(got.KernelBytes) != string(kernel) {
+			if string(artifactBytes(t, got.KernelPath)) != string(kernel) {
 				t.Errorf("kernel bytes differ")
 			}
-			if string(got.InitramfsBytes) != string(initramfs) {
+			if string(artifactBytes(t, got.InitramfsPath)) != string(initramfs) {
 				t.Errorf("initramfs bytes differ")
 			}
 		})
@@ -224,7 +224,7 @@ func TestOCIResolver_BasicAuth(t *testing.T) {
 	reg := newFakeRegistry(t, kernel, initramfs, withRequiredAuth(expectedAuth))
 	ref := fmt.Sprintf("%s/caplv/boot:v1", reg.host())
 
-	r := NewOCIResolver()
+	r := NewOCIResolver(t.TempDir())
 	src := infrav1.BootArtifactsSource{
 		Type: infrav1.BootArtifactsSourceOCI,
 		OCI:  &infrav1.OCIBootArtifactsSource{Reference: ref, PlainHTTP: true},
@@ -238,7 +238,7 @@ func TestOCIResolver_BasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticated pull failed: %v", err)
 	}
-	if string(got.KernelBytes) != "k" || string(got.InitramfsBytes) != "i" {
+	if string(artifactBytes(t, got.KernelPath)) != "k" || string(artifactBytes(t, got.InitramfsPath)) != "i" {
 		t.Errorf("unexpected payload")
 	}
 }

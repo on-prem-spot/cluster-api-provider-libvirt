@@ -18,6 +18,7 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -31,6 +32,21 @@ import (
 )
 
 const defaultSSHPort = 22
+
+// errHostKeyMismatch marks a host key whose fingerprint is not the pinned one.
+var errHostKeyMismatch = errors.New("host key mismatch")
+
+// hostKeyAlgorithmGroups lists the host key algorithms by key type, ed25519
+// first since it is the key whose fingerprint the setup playbook and docs
+// pin. A host usually has a key of each type, but a fingerprint does not say
+// which one it is for, and the server shows only the key of the algorithm
+// the handshake settles on (x/crypto prefers ECDSA and RSA to ed25519). So
+// a pinned host is offered one key type per handshake until its key matches.
+var hostKeyAlgorithmGroups = [][]string{
+	{gossh.KeyAlgoED25519},
+	{gossh.KeyAlgoECDSA256, gossh.KeyAlgoECDSA384, gossh.KeyAlgoECDSA521},
+	{gossh.KeyAlgoRSASHA512, gossh.KeyAlgoRSASHA256},
+}
 
 // NewSSHClient creates an SSH client connection to the libvirt host using
 // credentials from the provided Secret. The host's SSH host key must be pinned
@@ -89,6 +105,34 @@ func newSSHClient(
 
 	addr := net.JoinHostPort(hostname, strconv.Itoa(port))
 
+	if host.Spec.HostKeyFingerprint == "" {
+		return dial(ctx, addr, config)
+	}
+	var mismatches []error
+	for _, algorithms := range hostKeyAlgorithmGroups {
+		config.HostKeyAlgorithms = algorithms
+		client, err := dial(ctx, addr, config)
+		if err == nil {
+			return client, nil
+		}
+		var negotiation *gossh.AlgorithmNegotiationError
+		switch {
+		case errors.Is(err, errHostKeyMismatch):
+			mismatches = append(mismatches, err)
+		case errors.As(err, &negotiation) && negotiation.What == "host key":
+			// The host has no key of this type.
+		default:
+			return nil, err
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil, fmt.Errorf("SSH handshake with %s: the host offered no host key of a supported type", addr)
+	}
+	return nil, errors.Join(mismatches...)
+}
+
+// dial opens an SSH connection to addr.
+func dial(ctx context.Context, addr string, config *gossh.ClientConfig) (*gossh.Client, error) {
 	// Use a dialer that respects context cancellation.
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
@@ -138,7 +182,8 @@ func verifyHostKey(expectedFingerprint string) gossh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
 		actual := gossh.FingerprintSHA256(key)
 		if actual != expectedFingerprint {
-			return fmt.Errorf("host key mismatch for %s: expected %s, got %s", hostname, expectedFingerprint, actual)
+			return fmt.Errorf("%w for %s: expected %s, got %s %s",
+				errHostKeyMismatch, hostname, expectedFingerprint, key.Type(), actual)
 		}
 		return nil
 	}

@@ -26,11 +26,11 @@ import (
 
 const (
 	// MaxArtifactBytes caps a single kernel or initramfs, before and after gzip
-	// decompression. These artifacts are held wholly in memory and then cached
-	// for the process lifetime, so an unbounded read is an OOM of the manager —
-	// and since the digest can only be checked once the bytes are in hand, a
-	// pinned sha256 is no defence against a decompression bomb. 512 MiB is well
-	// clear of a real RHCOS kernel+initramfs pair.
+	// decompression. Artifacts are streamed to the cache directory, not held in
+	// memory, but the directory is bounded too, and since the digest can only
+	// be checked once the whole payload is in, a pinned sha256 is no defence
+	// against a decompression bomb. 512 MiB is well clear of a real RHCOS
+	// kernel+initramfs pair.
 	MaxArtifactBytes = 512 << 20
 	// maxManifestBytes caps an OCI manifest document, which is small JSON.
 	maxManifestBytes = 4 << 20
@@ -49,11 +49,12 @@ func readLimited(r io.Reader, limit int64, what string) ([]byte, error) {
 	return buf, nil
 }
 
-// Artifacts holds the fetched kernel and initramfs bytes plus their sha256 hex digests.
+// Artifacts locates the fetched kernel and initramfs in the resolver's cache
+// directory, with their sha256 hex digests.
 type Artifacts struct {
-	KernelBytes     []byte
+	KernelPath      string
 	KernelSHA256    string
-	InitramfsBytes  []byte
+	InitramfsPath   string
 	InitramfsSHA256 string
 }
 
@@ -131,12 +132,12 @@ func checkTransportPolicy(src infrav1.BootArtifactsSource, allowInsecure bool) e
 }
 
 // NewMultiResolver returns a MultiResolver wired with the default
-// implementations for each supported transport.
-func NewMultiResolver() *MultiResolver {
+// implementations for each supported transport, storing artifacts in dir.
+func NewMultiResolver(dir string) *MultiResolver {
 	return &MultiResolver{
-		HTTPS: NewHTTPSResolver(),
-		OCI:   NewOCIResolver(),
-		S3:    NewS3Resolver(),
+		HTTPS: NewHTTPSResolver(dir),
+		OCI:   NewOCIResolver(dir),
+		S3:    NewS3Resolver(dir),
 	}
 }
 

@@ -18,13 +18,10 @@ package bootartifacts
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
@@ -46,12 +43,15 @@ const (
 //	oras push registry.example.com/caplv/boot:v1 \
 //	    vmlinuz:application/octet-stream \
 //	    initramfs.img:application/octet-stream
-type OCIResolver struct{}
+type OCIResolver struct {
+	// Dir is where artifacts are stored.
+	Dir string
+}
 
-// NewOCIResolver returns an OCIResolver. The resolver is stateless; per-call
+// NewOCIResolver returns an OCIResolver that stores artifacts in dir. Per-call
 // behavior (auth, TLS) is driven by the BootArtifactsSource and Credentials
 // passed to Resolve.
-func NewOCIResolver() *OCIResolver { return &OCIResolver{} }
+func NewOCIResolver(dir string) *OCIResolver { return &OCIResolver{Dir: dir} }
 
 // Resolve pulls the manifest at src.OCI.Reference, locates the kernel and
 // initramfs layers by title annotation, and fetches their blobs.
@@ -120,19 +120,19 @@ func (r *OCIResolver) Resolve(ctx context.Context, src infrav1.BootArtifactsSour
 		return nil, fmt.Errorf("initramfs layer: %w", err)
 	}
 
-	kernelBytes, kernelDigest, err := fetchLayer(ctx, repo, kernelLayer, spec.KernelSHA256)
+	kernelPath, kernelDigest, err := fetchLayer(ctx, repo, kernelLayer, spec.KernelSHA256, r.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("kernel: %w", err)
 	}
-	initramfsBytes, initramfsDigest, err := fetchLayer(ctx, repo, initramfsLayer, spec.InitramfsSHA256)
+	initramfsPath, initramfsDigest, err := fetchLayer(ctx, repo, initramfsLayer, spec.InitramfsSHA256, r.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("initramfs: %w", err)
 	}
 
 	return &Artifacts{
-		KernelBytes:     kernelBytes,
+		KernelPath:      kernelPath,
 		KernelSHA256:    kernelDigest,
-		InitramfsBytes:  initramfsBytes,
+		InitramfsPath:   initramfsPath,
 		InitramfsSHA256: initramfsDigest,
 	}, nil
 }
@@ -166,26 +166,11 @@ func pickLayerByTitle(layers []ocispec.Descriptor, title string) (ocispec.Descri
 	return *match, nil
 }
 
-func fetchLayer(ctx context.Context, repo *remote.Repository, desc ocispec.Descriptor, expectedSHA256 string) ([]byte, string, error) {
+func fetchLayer(ctx context.Context, repo *remote.Repository, desc ocispec.Descriptor, expectedSHA256, dir string) (string, string, error) {
 	rc, err := repo.Fetch(ctx, desc)
 	if err != nil {
-		return nil, "", fmt.Errorf("fetch blob %s: %w", desc.Digest, err)
+		return "", "", fmt.Errorf("fetch blob %s: %w", desc.Digest, err)
 	}
 	defer func() { _ = rc.Close() }()
-
-	raw, err := readLimited(rc, MaxArtifactBytes, fmt.Sprintf("blob %s", desc.Digest))
-	if err != nil {
-		return nil, "", fmt.Errorf("read blob %s: %w", desc.Digest, err)
-	}
-	body, err := decompressIfGzip(raw)
-	if err != nil {
-		return nil, "", fmt.Errorf("decompress blob %s: %w", desc.Digest, err)
-	}
-	sum := sha256.Sum256(body)
-	digest := hex.EncodeToString(sum[:])
-
-	if expectedSHA256 != "" && !strings.EqualFold(digest, expectedSHA256) {
-		return nil, "", fmt.Errorf("sha256 mismatch for layer %s: got %s, expected %s", desc.Digest, digest, expectedSHA256)
-	}
-	return body, digest, nil
+	return storeArtifact(dir, rc, expectedSHA256, fmt.Sprintf("layer %s", desc.Digest))
 }

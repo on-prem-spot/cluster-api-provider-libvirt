@@ -1,6 +1,6 @@
 module github.com/on-prem-spot/cluster-api-provider-libvirt/test/e2e-libvirt
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/onsi/ginkgo/v2 v2.32.0

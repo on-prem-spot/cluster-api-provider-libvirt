@@ -85,7 +85,7 @@ func TestCheckTransportPolicy_AllowsSecureSources(t *testing.T) {
 
 // The policy has to be enforced on the dispatch path, not only in the helper.
 func TestMultiResolver_EnforcesTransportPolicy(t *testing.T) {
-	m := NewMultiResolver()
+	m := NewMultiResolver(t.TempDir())
 	src := infrav1.BootArtifactsSource{
 		Type: infrav1.BootArtifactsSourceOCI,
 		OCI:  &infrav1.OCIBootArtifactsSource{Reference: "r/x:1", PlainHTTP: true},

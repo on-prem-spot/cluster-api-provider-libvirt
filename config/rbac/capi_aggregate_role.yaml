@@ -17,4 +17,7 @@ rules:
       - libvirthosts
       - libvirthosts/status
       - libvirthosts/finalizers
+      - libvirtexternalcontrolplanes
+      - libvirtexternalcontrolplanes/status
+      - libvirtexternalcontrolplanes/finalizers
     verbs: [get, list, watch, create, update, patch, delete]
